@@ -1,146 +1,131 @@
 #pragma once
 
+/**
+ * ASE LogSystem - ECS-based Logging System
+ *
+ * The logger IS an ECS System. It initializes on_start() and shuts down on_stop().
+ * Runs in Foundation phase (first to start, last to stop).
+ *
+ * Usage:
+ *   // LogSystem is auto-registered, just use SystemRegistry::create_all_systems()
+ *   ase::ecs::World world;
+ *   ase::ecs::SystemRegistry::create_all_systems(world);
+ *   world.start();  // LogSystem initializes here
+ *
+ *   // Then log anywhere:
+ *   ase::log::info("Server started on port {}", 8080);
+ *
+ * Tail logs: tail -f logs/antares.log
+ */
+
+#include <ase/ecs/ecs.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <memory>
+#include <string>
 #include <string_view>
-#include <filesystem>
 
 namespace ase::log {
 
-inline std::shared_ptr<spdlog::logger> g_logger = nullptr;
-inline std::string g_log_path;
+// ============================================================================
+// LogSystem - The Logger as an ECS System
+// ============================================================================
 
-/**
- * Initialize the logging system
- *
- * @param name Logger name (shown in console output)
- * @param log_file Path to log file (default: logs/antares.log)
- *
- * Log format: [YYYY-MM-DD HH:MM:SS.mmm] [level] [name] message
- * File is truncated on start for fresh logs each run.
- *
- * Usage:
- *   ase::log::init("ASE-Server");
- *   ase::log::info("Server started on port {}", 8080);
- *
- * Tail logs in parallel:
- *   tail -f logs/antares.log
- */
-inline void init(const std::string& name = "ASE", const std::string& log_file = "logs/antares.log") {
-    if (g_logger) return;
+class LogSystem : public ecs::System {
+public:
+    LogSystem() = default;
+    explicit LogSystem(const std::string& name, const std::string& log_file = "logs/antares.log");
 
-    // Create logs directory if it doesn't exist
-    std::filesystem::path log_path(log_file);
-    if (log_path.has_parent_path()) {
-        std::filesystem::create_directories(log_path.parent_path());
-    }
-    g_log_path = log_file;
+    const char* name() const override { return "LogSystem"; }
+    int priority() const override { return 0; }  // First system to run
 
-    // Create sinks: console (colored) + file
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    console_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%n] %v");
+    void on_start(ecs::Registry& registry) override;
+    void on_stop(ecs::Registry& registry) override;
+    void tick(ecs::Registry& registry, float dt) override;
 
-    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file, true); // truncate
-    file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] [%n] %v");
+    // Configuration (call before on_start)
+    void set_name(const std::string& name) { logger_name_ = name; }
+    void set_log_file(const std::string& path) { log_file_ = path; }
 
-    // Create logger with both sinks
-    std::vector<spdlog::sink_ptr> sinks{console_sink, file_sink};
-    g_logger = std::make_shared<spdlog::logger>(name, sinks.begin(), sinks.end());
-    g_logger->set_level(spdlog::level::debug);
+    // Access underlying logger
+    static std::shared_ptr<spdlog::logger>& logger() { return g_logger_; }
+    static const std::string& log_path() { return g_log_path_; }
 
-    // Flush immediately on every log (for tail -f support)
-    g_logger->flush_on(spdlog::level::trace);
+private:
+    std::string logger_name_ = "ASE";
+    std::string log_file_ = "logs/antares.log";
 
-    // Register globally
-    spdlog::register_logger(g_logger);
+    static std::shared_ptr<spdlog::logger> g_logger_;
+    static std::string g_log_path_;
+};
 
-    // Write startup marker
-    g_logger->info("=== ANTARES SIMULATION ENGINE STARTED ===");
-}
-
-inline void shutdown() {
-    if (g_logger) {
-        g_logger->info("=== ANTARES SIMULATION ENGINE STOPPED ===");
-        g_logger->flush();
-        spdlog::drop_all();
-        g_logger.reset();
-    }
-}
-
-/**
- * Get the log file path
- */
-inline const std::string& log_path() {
-    return g_log_path;
-}
+// ============================================================================
+// Global Logging Functions (static, use LogSystem's logger)
+// ============================================================================
 
 // Simple string logging
 inline void info(std::string_view msg) {
-    if (g_logger) g_logger->info("{}", msg);
+    if (LogSystem::logger()) LogSystem::logger()->info("{}", msg);
 }
 
 inline void warn(std::string_view msg) {
-    if (g_logger) g_logger->warn("{}", msg);
+    if (LogSystem::logger()) LogSystem::logger()->warn("{}", msg);
 }
 
 inline void error(std::string_view msg) {
-    if (g_logger) g_logger->error("{}", msg);
+    if (LogSystem::logger()) LogSystem::logger()->error("{}", msg);
 }
 
 inline void debug(std::string_view msg) {
-    if (g_logger) g_logger->debug("{}", msg);
+    if (LogSystem::logger()) LogSystem::logger()->debug("{}", msg);
 }
 
 inline void trace(std::string_view msg) {
-    if (g_logger) g_logger->trace("{}", msg);
+    if (LogSystem::logger()) LogSystem::logger()->trace("{}", msg);
 }
 
 inline void critical(std::string_view msg) {
-    if (g_logger) g_logger->critical("{}", msg);
+    if (LogSystem::logger()) LogSystem::logger()->critical("{}", msg);
 }
 
 // Formatted logging (fmt style)
 template<typename... Args>
 inline void info(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (g_logger) g_logger->info(fmt, std::forward<Args>(args)...);
+    if (LogSystem::logger()) LogSystem::logger()->info(fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void warn(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (g_logger) g_logger->warn(fmt, std::forward<Args>(args)...);
+    if (LogSystem::logger()) LogSystem::logger()->warn(fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void error(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (g_logger) g_logger->error(fmt, std::forward<Args>(args)...);
+    if (LogSystem::logger()) LogSystem::logger()->error(fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void debug(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (g_logger) g_logger->debug(fmt, std::forward<Args>(args)...);
+    if (LogSystem::logger()) LogSystem::logger()->debug(fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void trace(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (g_logger) g_logger->trace(fmt, std::forward<Args>(args)...);
+    if (LogSystem::logger()) LogSystem::logger()->trace(fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void critical(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (g_logger) g_logger->critical(fmt, std::forward<Args>(args)...);
+    if (LogSystem::logger()) LogSystem::logger()->critical(fmt, std::forward<Args>(args)...);
 }
 
 inline void set_level(spdlog::level::level_enum level) {
-    if (g_logger) g_logger->set_level(level);
+    if (LogSystem::logger()) LogSystem::logger()->set_level(level);
 }
 
-/**
- * Force flush all pending log messages
- */
 inline void flush() {
-    if (g_logger) g_logger->flush();
+    if (LogSystem::logger()) LogSystem::logger()->flush();
 }
 
 }  // namespace ase::log
