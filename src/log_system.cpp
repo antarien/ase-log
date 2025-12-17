@@ -9,7 +9,7 @@ namespace ase::log {
 class ColoredLevelFlag : public spdlog::custom_flag_formatter {
 public:
     void format(const spdlog::details::log_msg& msg, const std::tm&, spdlog::memory_buf_t& dest) override {
-        static const char* levels[] = {"Trc", "Dbg", "Inf", "Wrn", "Err", "Crt", "Off"};
+        static const char* levels[] = {"TRC", "DBG", "INF", "WRN", "ERR", "CRT", "OFF"};
         static const char* colors[] = {
             "\x1b[38;5;243m", // trace - dark gray
             "\x1b[38;5;67m",  // debug - muted blue
@@ -36,7 +36,7 @@ public:
 class PlainLevelFlag : public spdlog::custom_flag_formatter {
 public:
     void format(const spdlog::details::log_msg& msg, const std::tm&, spdlog::memory_buf_t& dest) override {
-        static const char* levels[] = {"Trc", "Dbg", "Inf", "Wrn", "Err", "Crt", "Off"};
+        static const char* levels[] = {"TRC", "DBG", "INF", "WRN", "ERR", "CRT", "OFF"};
         auto idx = static_cast<size_t>(msg.level);
         if (idx < sizeof(levels) / sizeof(levels[0])) {
             dest.append(std::string_view(levels[idx]));
@@ -86,8 +86,10 @@ void LogSystem::on_start(ecs::Registry& /*registry*/) {
     }
     g_log_path_ = log_file_;
 
-    // Shared file sink for both loggers (append mode after first)
-    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file_, true);
+    // Truncate log file on startup
+    if (std::filesystem::exists(log_file_)) {
+        std::filesystem::resize_file(log_file_, 0);
+    }
 
     // === SERVER LOGGER (with [SERVER] prefix) ===
     // Console: "[2025-01-15 18:32:45.123] [Inf] [ASE] [SERVER] message"
