@@ -1,5 +1,5 @@
 #include <ase/log/log.hpp>
-#include <ase/ecs/system_registry.hpp>
+#include <ase/ecs/schedule_registry.hpp>
 #include <spdlog/pattern_formatter.h>
 #include <filesystem>
 
@@ -165,11 +165,9 @@ void LogSystem::tick(ecs::Registry& /*registry*/, float /*dt*/) {
     // Könnte später für Batch-Logging bei Millionen Logs genutzt werden
 }
 
-// Auto-register in Foundation phase (first!)
-AUTO_REGISTER_SYSTEM(
-    LogSystem,
-    ecs::SystemPhase::Foundation,
-    (std::vector<std::string>{})
-)
+// Register in Startup schedule (first!)
+REGISTER_SYSTEM(LogSystem)
+    .in_schedule(ecs::Schedule::Startup)
+    .with_priority(0);
 
 }  // namespace ase::log
