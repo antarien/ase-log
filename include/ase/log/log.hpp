@@ -1,5 +1,12 @@
 #pragma once
 
+// GCC14 has a false positive -Wdangling-reference warning with spdlog/fmt
+// See: https://github.com/fmtlib/fmt/issues/3415
+#if defined(__GNUC__) && __GNUC__ >= 14
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdangling-reference"
+#endif
+
 /**
  * ASE LogSystem - ECS-based Logging System
  *
@@ -65,27 +72,28 @@ private:
 // ============================================================================
 
 // Simple string logging
-inline void info(std::string_view msg) {
+// Use std::string to avoid GCC14 -Wdangling-reference false positive with spdlog/fmt
+inline void info(const std::string& msg) {
     if (LogSystem::logger()) LogSystem::logger()->info("{}", msg);
 }
 
-inline void warn(std::string_view msg) {
+inline void warn(const std::string& msg) {
     if (LogSystem::logger()) LogSystem::logger()->warn("{}", msg);
 }
 
-inline void error(std::string_view msg) {
+inline void error(const std::string& msg) {
     if (LogSystem::logger()) LogSystem::logger()->error("{}", msg);
 }
 
-inline void debug(std::string_view msg) {
+inline void debug(const std::string& msg) {
     if (LogSystem::logger()) LogSystem::logger()->debug("{}", msg);
 }
 
-inline void trace(std::string_view msg) {
+inline void trace(const std::string& msg) {
     if (LogSystem::logger()) LogSystem::logger()->trace("{}", msg);
 }
 
-inline void critical(std::string_view msg) {
+inline void critical(const std::string& msg) {
     if (LogSystem::logger()) LogSystem::logger()->critical("{}", msg);
 }
 
@@ -129,3 +137,7 @@ inline void flush() {
 }
 
 }  // namespace ase::log
+
+#if defined(__GNUC__) && __GNUC__ >= 14
+#pragma GCC diagnostic pop
+#endif
