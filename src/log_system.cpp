@@ -67,7 +67,8 @@ public:
 };
 
 // Static member definitions
-std::shared_ptr<spdlog::logger> LogSystem::g_logger_ = nullptr;
+std::shared_ptr<spdlog::logger> LogSystem::g_logger_ = nullptr;        // Server logger with [SERVER] prefix
+std::shared_ptr<spdlog::logger> LogSystem::g_client_logger_ = nullptr; // Client logger without [SERVER] prefix
 std::string LogSystem::g_log_path_;
 
 LogSystem::LogSystem(const std::string& name, const std::string& log_file)
@@ -85,36 +86,67 @@ void LogSystem::on_start(ecs::Registry& /*registry*/) {
     }
     g_log_path_ = log_file_;
 
-    // Console: format matching ecs.cpp boot_log
-    // Format: "[2025-01-15 18:32:45.123] [Inf] [ASE] message"
-    auto console_formatter = std::make_unique<spdlog::pattern_formatter>();
-    console_formatter->add_flag<ColoredLevelFlag>('*');
-    console_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] %v");
-
-    // File: plain text (same format, no colors)
-    auto file_formatter = std::make_unique<spdlog::pattern_formatter>();
-    file_formatter->add_flag<PlainLevelFlag>('#');
-    file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] %v");
-
-    // Create sinks with muted colors
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    console_sink->set_color(spdlog::level::trace, "\033[38;5;243m");    // dark gray
-    console_sink->set_color(spdlog::level::debug, "\033[38;5;67m");     // muted blue
-    console_sink->set_color(spdlog::level::info, "\033[38;5;71m");      // muted green
-    console_sink->set_color(spdlog::level::warn, "\033[38;5;179m");     // muted yellow
-    console_sink->set_color(spdlog::level::err, "\033[38;5;167m");      // muted red
-    console_sink->set_color(spdlog::level::critical, "\033[38;5;168m"); // muted magenta
-    console_sink->set_formatter(std::move(console_formatter));
-
+    // Shared file sink for both loggers (append mode after first)
     auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file_, true);
-    file_sink->set_formatter(std::move(file_formatter));
 
-    std::vector<spdlog::sink_ptr> sinks{console_sink, file_sink};
-    g_logger_ = std::make_shared<spdlog::logger>(logger_name_, sinks.begin(), sinks.end());
+    // === SERVER LOGGER (with [SERVER] prefix) ===
+    // Console: "[2025-01-15 18:32:45.123] [Inf] [ASE] [SERVER] message"
+    auto server_console_formatter = std::make_unique<spdlog::pattern_formatter>();
+    server_console_formatter->add_flag<ColoredLevelFlag>('*');
+    server_console_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] [SERVER] %v");
+
+    // File: plain text
+    auto server_file_formatter = std::make_unique<spdlog::pattern_formatter>();
+    server_file_formatter->add_flag<PlainLevelFlag>('#');
+    server_file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] [SERVER] %v");
+
+    auto server_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    server_console_sink->set_color(spdlog::level::trace, "\033[38;5;243m");
+    server_console_sink->set_color(spdlog::level::debug, "\033[38;5;67m");
+    server_console_sink->set_color(spdlog::level::info, "\033[38;5;71m");
+    server_console_sink->set_color(spdlog::level::warn, "\033[38;5;179m");
+    server_console_sink->set_color(spdlog::level::err, "\033[38;5;167m");
+    server_console_sink->set_color(spdlog::level::critical, "\033[38;5;168m");
+    server_console_sink->set_formatter(std::move(server_console_formatter));
+
+    auto server_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file_, true);
+    server_file_sink->set_formatter(std::move(server_file_formatter));
+
+    std::vector<spdlog::sink_ptr> server_sinks{server_console_sink, server_file_sink};
+    g_logger_ = std::make_shared<spdlog::logger>(logger_name_, server_sinks.begin(), server_sinks.end());
     g_logger_->set_level(spdlog::level::debug);
     g_logger_->flush_on(spdlog::level::trace);
-
     spdlog::register_logger(g_logger_);
+
+    // === CLIENT LOGGER (without [SERVER] - client logs have their own prefix) ===
+    // Console: "[2025-01-15 18:32:45.123] [Inf] [ASE] message"
+    auto client_console_formatter = std::make_unique<spdlog::pattern_formatter>();
+    client_console_formatter->add_flag<ColoredLevelFlag>('*');
+    client_console_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] %v");
+
+    // File: plain text
+    auto client_file_formatter = std::make_unique<spdlog::pattern_formatter>();
+    client_file_formatter->add_flag<PlainLevelFlag>('#');
+    client_file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] %v");
+
+    auto client_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    client_console_sink->set_color(spdlog::level::trace, "\033[38;5;243m");
+    client_console_sink->set_color(spdlog::level::debug, "\033[38;5;67m");
+    client_console_sink->set_color(spdlog::level::info, "\033[38;5;71m");
+    client_console_sink->set_color(spdlog::level::warn, "\033[38;5;179m");
+    client_console_sink->set_color(spdlog::level::err, "\033[38;5;167m");
+    client_console_sink->set_color(spdlog::level::critical, "\033[38;5;168m");
+    client_console_sink->set_formatter(std::move(client_console_formatter));
+
+    // Client logger shares file sink but with different formatter - need separate sink
+    auto client_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file_, false); // append
+    client_file_sink->set_formatter(std::move(client_file_formatter));
+
+    std::vector<spdlog::sink_ptr> client_sinks{client_console_sink, client_file_sink};
+    g_client_logger_ = std::make_shared<spdlog::logger>("client", client_sinks.begin(), client_sinks.end());
+    g_client_logger_->set_level(spdlog::level::debug);
+    g_client_logger_->flush_on(spdlog::level::trace);
+    spdlog::register_logger(g_client_logger_);
 
     g_logger_->info("LogSystem started");
 }
