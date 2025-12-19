@@ -2,8 +2,30 @@
 #include <ase/ecs/schedule_registry.hpp>
 #include <spdlog/pattern_formatter.h>
 #include <filesystem>
+#ifdef __linux__
+#include <unistd.h>
+#include <climits>
+#endif
 
 namespace ase::log {
+
+// Get project root directory (where logs/ should be created)
+// Binary is in build/bin/, so project root is ../../
+static std::filesystem::path get_project_root() {
+#ifdef __linux__
+    char buf[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len != -1) {
+        buf[len] = '\0';
+        std::filesystem::path exe_path(buf);
+        // Binary: /path/to/ase/build/bin/ase-server-game
+        // Root:   /path/to/ase/
+        return exe_path.parent_path().parent_path().parent_path();
+    }
+#endif
+    // Fallback: current working directory
+    return std::filesystem::current_path();
+}
 
 // Custom flag for colored 3-character log level (matching ecs.cpp boot_log)
 class ColoredLevelFlag : public spdlog::custom_flag_formatter {
@@ -79,16 +101,24 @@ LogSystem::LogSystem(const std::string& name, const std::string& log_file)
 void LogSystem::on_start(ecs::Registry& /*registry*/) {
     if (g_logger_) return;
 
-    // Create logs directory
-    std::filesystem::path log_path(log_file_);
-    if (log_path.has_parent_path()) {
-        std::filesystem::create_directories(log_path.parent_path());
+    // Calculate absolute log path relative to project root (not cwd!)
+    // This ensures logs always go to /path/to/ase/logs/antares.log
+    std::filesystem::path absolute_log_path;
+    if (std::filesystem::path(log_file_).is_relative()) {
+        absolute_log_path = get_project_root() / log_file_;
+    } else {
+        absolute_log_path = log_file_;
     }
-    g_log_path_ = log_file_;
+
+    // Create logs directory
+    if (absolute_log_path.has_parent_path()) {
+        std::filesystem::create_directories(absolute_log_path.parent_path());
+    }
+    g_log_path_ = absolute_log_path.string();
 
     // Truncate log file on startup
-    if (std::filesystem::exists(log_file_)) {
-        std::filesystem::resize_file(log_file_, 0);
+    if (std::filesystem::exists(absolute_log_path)) {
+        std::filesystem::resize_file(absolute_log_path, 0);
     }
 
     // === SERVER LOGGER (with [SERVER] prefix) ===
@@ -111,7 +141,7 @@ void LogSystem::on_start(ecs::Registry& /*registry*/) {
     server_console_sink->set_color(spdlog::level::critical, "\033[38;5;168m");
     server_console_sink->set_formatter(std::move(server_console_formatter));
 
-    auto server_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file_, true);
+    auto server_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(absolute_log_path.string(), true);
     server_file_sink->set_formatter(std::move(server_file_formatter));
 
     std::vector<spdlog::sink_ptr> server_sinks{server_console_sink, server_file_sink};
@@ -141,7 +171,7 @@ void LogSystem::on_start(ecs::Registry& /*registry*/) {
     client_console_sink->set_formatter(std::move(client_console_formatter));
 
     // Client logger shares file sink but with different formatter - need separate sink
-    auto client_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file_, false); // append
+    auto client_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(absolute_log_path.string(), false); // append
     client_file_sink->set_formatter(std::move(client_file_formatter));
 
     std::vector<spdlog::sink_ptr> client_sinks{client_console_sink, client_file_sink};
