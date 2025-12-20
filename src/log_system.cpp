@@ -179,7 +179,6 @@ void LogSystem::on_start(ecs::Registry& /*registry*/) {
     g_client_logger_->flush_on(spdlog::level::trace);
     spdlog::register_logger(g_client_logger_);
 
-    g_logger_->info("LogSystem started");
 }
 
 void LogSystem::on_stop(ecs::Registry& /*registry*/) {
