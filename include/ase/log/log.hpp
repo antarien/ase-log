@@ -212,6 +212,86 @@ inline void rtc_debug(spdlog::format_string_t<Args...> fmt, Args&&... args) {
     }
 }
 
+// ============================================================================
+// Error Categories (ERR::CAT) - DRY error messages with auto-generated help
+// ============================================================================
+// Usage: log::error(log::ERR::CAT::HUB_NOT_FOUND, "SystemName", owner, "VALUE_ID");
+// Output: [ERR] [SystemName] HUB_NOT_FOUND: owner=123, value_id='VALUE_ID'
+//         Check: 1) IniSystem created hub entity in on_start()
+//                2) Spawn created hub values for entity
+//                3) Correct owner ID, 4) No typo in value_id
+
+namespace ERR {
+namespace CAT {
+    constexpr uint8_t HUB_NOT_FOUND = 1;       // Hub entity doesn't exist for owner+value_id
+    constexpr uint8_t HUB_GLOBAL_MISSING = 2;  // GLOBAL hub value missing
+    constexpr uint8_t COMPONENT_MISSING = 3;   // Required component not on entity
+    constexpr uint8_t INVALID_ENTITY = 4;      // Entity ID is invalid or destroyed
+    constexpr uint8_t SCHEDULE_ORDER = 5;      // System runs before its dependency
+}  // namespace CAT
+}  // namespace ERR
+
+// Category-specific error messages (SSOT - defined once here)
+namespace detail {
+    inline const char* get_cat_name(uint8_t cat) {
+        switch (cat) {
+            case ERR::CAT::HUB_NOT_FOUND:      return "HUB_NOT_FOUND";
+            case ERR::CAT::HUB_GLOBAL_MISSING: return "HUB_GLOBAL_MISSING";
+            case ERR::CAT::COMPONENT_MISSING:  return "COMPONENT_MISSING";
+            case ERR::CAT::INVALID_ENTITY:     return "INVALID_ENTITY";
+            case ERR::CAT::SCHEDULE_ORDER:     return "SCHEDULE_ORDER";
+            default: return "UNKNOWN";
+        }
+    }
+
+    inline const char* get_cat_help(uint8_t cat) {
+        switch (cat) {
+            case ERR::CAT::HUB_NOT_FOUND:
+                return "Check: 1) IniSystem created hub entity in on_start(), "
+                       "2) Spawn created hub values for entity, "
+                       "3) Correct owner ID, 4) No typo in value_id";
+            case ERR::CAT::HUB_GLOBAL_MISSING:
+                return "Check: 1) Source module IniSystem created GLOBAL hub value, "
+                       "2) Source module is loaded, 3) No typo in value_id";
+            case ERR::CAT::COMPONENT_MISSING:
+                return "Check: 1) Entity was spawned with required components, "
+                       "2) Component not removed by another system";
+            case ERR::CAT::INVALID_ENTITY:
+                return "Check: 1) Entity not destroyed, "
+                       "2) Correct entity ID stored, 3) No dangling reference";
+            case ERR::CAT::SCHEDULE_ORDER:
+                return "Check: 1) Producer system has lower priority number, "
+                       "2) .run_after() constraint in module definition";
+            default:
+                return "";
+        }
+    }
+}  // namespace detail
+
+// Categorized error logging for per-entity values
+inline void error(uint8_t cat, const char* system, uint32_t owner, const char* value_id) {
+    if (LogSystem::logger()) {
+        LogSystem::logger()->error("[{}] {}: owner={}, value_id='{}'. {}",
+            system, detail::get_cat_name(cat), owner, value_id, detail::get_cat_help(cat));
+    }
+}
+
+// Categorized error logging for GLOBAL values (no owner)
+inline void error(uint8_t cat, const char* system, const char* value_id) {
+    if (LogSystem::logger()) {
+        LogSystem::logger()->error("[{}] {}: value_id='{}' (GLOBAL). {}",
+            system, detail::get_cat_name(cat), value_id, detail::get_cat_help(cat));
+    }
+}
+
+// Categorized error logging for component/entity issues (no value_id)
+inline void error(uint8_t cat, const char* system, uint32_t entity) {
+    if (LogSystem::logger()) {
+        LogSystem::logger()->error("[{}] {}: entity={}. {}",
+            system, detail::get_cat_name(cat), entity, detail::get_cat_help(cat));
+    }
+}
+
 }  // namespace ase::log
 
 #if defined(__GNUC__) && __GNUC__ >= 14
