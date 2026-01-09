@@ -292,6 +292,61 @@ inline void error(uint8_t cat, const char* system, uint32_t entity) {
     }
 }
 
+// ============================================================================
+// Warning Categories (WRN::CAT) - DRY warning messages with auto-generated help
+// ============================================================================
+// Usage: log::warn(log::WRN::CAT::VALUE_OUT_OF_RANGE, "SystemName", owner, "VALUE_ID", value, min, max);
+// Output: [WRN] [SystemName] VALUE_OUT_OF_RANGE: owner=123, value_id='VALUE_ID', value=1.5, range=[0.0,1.0]
+//         Fix: Value will be clamped to valid range
+
+namespace WRN {
+namespace CAT {
+    constexpr uint8_t VALUE_OUT_OF_RANGE = 1;   // Value exists but outside valid range
+    constexpr uint8_t VALUE_NEGATIVE = 2;       // Value exists but negative (should be >= 0)
+    constexpr uint8_t VALUE_INVALID = 3;        // Value exists but semantically invalid
+}  // namespace CAT
+}  // namespace WRN
+
+namespace detail {
+    inline const char* get_wrn_cat_name(uint8_t cat) {
+        switch (cat) {
+            case WRN::CAT::VALUE_OUT_OF_RANGE: return "VALUE_OUT_OF_RANGE";
+            case WRN::CAT::VALUE_NEGATIVE:     return "VALUE_NEGATIVE";
+            case WRN::CAT::VALUE_INVALID:      return "VALUE_INVALID";
+            default: return "UNKNOWN";
+        }
+    }
+
+    inline const char* get_wrn_cat_help(uint8_t cat) {
+        switch (cat) {
+            case WRN::CAT::VALUE_OUT_OF_RANGE:
+                return "Fix: Value will be clamped to valid range";
+            case WRN::CAT::VALUE_NEGATIVE:
+                return "Fix: Value will be set to 0";
+            case WRN::CAT::VALUE_INVALID:
+                return "Fix: Value will be set to default";
+            default:
+                return "";
+        }
+    }
+}  // namespace detail
+
+// Categorized warning for out-of-range values
+inline void warn(uint8_t cat, const char* system, uint32_t owner, const char* value_id, float value, float min, float max) {
+    if (LogSystem::logger()) {
+        LogSystem::logger()->warn("[{}] {}: owner={}, value_id='{}', value={}, range=[{},{}]. {}",
+            system, detail::get_wrn_cat_name(cat), owner, value_id, value, min, max, detail::get_wrn_cat_help(cat));
+    }
+}
+
+// Categorized warning for negative values
+inline void warn(uint8_t cat, const char* system, uint32_t owner, const char* value_id, float value) {
+    if (LogSystem::logger()) {
+        LogSystem::logger()->warn("[{}] {}: owner={}, value_id='{}', value={}. {}",
+            system, detail::get_wrn_cat_name(cat), owner, value_id, value, detail::get_wrn_cat_help(cat));
+    }
+}
+
 }  // namespace ase::log
 
 #if defined(__GNUC__) && __GNUC__ >= 14
