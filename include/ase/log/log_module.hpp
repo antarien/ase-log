@@ -18,7 +18,7 @@ struct LogModule {
     static constexpr const char* name() { return "ase-log"; }
 
     void build(ecs::App& app) {
-        app.add_system<LogSystem>(ecs::Schedule::Startup);
+        app.add_system<LogSystem>(ecs::Schedule::Initialization);
     }
 };
 
