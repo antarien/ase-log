@@ -8,21 +8,55 @@
 #endif
 
 /**
- * ASE LogSystem - ECS-based Logging System
+ * ASE CORE INFRASTRUCTURE HEADER
  *
- * The logger IS an ECS System. It initializes on_start() and shuts down on_stop().
- * Runs in Foundation phase (first to start, last to stop).
+ * @file        log.hpp
+ * @brief       ECS-based logging system with CLI support
+ * @description Provides logging infrastructure for both ECS-based applications
+ *              and CLI tools. LogSystem is an ECS System that initializes on_start().
+ *              CLI tools can use init() for standalone initialization.
  *
- * Usage:
- *   // LogSystem is auto-registered, just use SystemRegistry::create_all_systems()
+ * @module      ase-log
+ * @layer       1 (Core)
+ * @category    logging
+ * @created     2024-01-01
+ * @modified    2025-01-21
+ * @version     2.0.0
+ *
+ * LAYER RULES:
+ *   Layer 0 (Foundation): NO dependencies on other ASE modules (only std::)
+ *   Layer 1 (Core):       May depend on Layer 0 only
+ *
+ * USAGE:
+ *   // ECS-based apps (LogSystem auto-initializes):
  *   ase::ecs::World world;
- *   ase::ecs::SystemRegistry::create_all_systems(world);
  *   world.start();  // LogSystem initializes here
- *
- *   // Then log anywhere:
  *   ase::log::info("Server started on port {}", 8080);
  *
- * Tail logs: tail -f logs/antares.log
+ *   // CLI tools (manual initialization):
+ *   ase::log::init("ase-codegen");
+ *   ase::log::info("Processing module: {}", module_name);
+ *   ase::log::shutdown();
+ *
+ * CORE INFRASTRUCTURE COMPLIANCE
+ *
+ * [ ] NOT an ECS Component or System
+ * [ ] Layer dependencies correct (L0: no ASE deps, L1: L0 only)
+ * [ ] No global mutable state (constexpr/const only)
+ * [ ] No singletons or static mutable variables
+ * [ ] Thread-safe by design (pure functions or explicit mutex)
+ * [ ] All public functions documented with @brief, @param, @return
+ * [ ] constexpr where possible (compile-time evaluation)
+ * [ ] noexcept where possible (no-throw guarantee)
+ * [ ] [[nodiscard]] on functions returning values
+ * [ ] No magic numbers (use named constants)
+ * [ ] No implicit conversions (use explicit constructors)
+ * [ ] Header-only OR header+cpp pattern (not mixed)
+ * [ ] Include guards via #pragma once
+ * [ ] Namespace matches module: ase::{module}
+ * [ ] No circular dependencies
+ * [ ] No macros (except include guards) - use constexpr/templates
+ * [ ] API stable (changes require version bump)
  */
 
 #include <ase/ecs/system.hpp>
@@ -68,6 +102,37 @@ private:
     static std::shared_ptr<spdlog::logger> g_client_logger_;  // Client logger without [SERVER] prefix
     static std::string g_log_path_;
 };
+
+// ============================================================================
+// CLI Initialization (for tools without ECS World)
+// ============================================================================
+
+/**
+ * @brief Initialize logger for CLI tools (no ECS required)
+ * @param name Logger name (e.g., "ase-codegen")
+ *
+ * Use this for CLI tools that don't have an ECS World.
+ * For ECS-based apps, use LogSystem::on_start() instead.
+ */
+inline void init(const std::string& name) {
+    if (LogSystem::logger()) return;  // Already initialized
+
+    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    console_sink->set_pattern("%v");  // Simple output for CLI
+
+    LogSystem::logger() = std::make_shared<spdlog::logger>(name, console_sink);
+    LogSystem::logger()->set_level(spdlog::level::info);
+}
+
+/**
+ * @brief Shutdown logger (for CLI tools)
+ */
+inline void shutdown() {
+    if (LogSystem::logger()) {
+        LogSystem::logger()->flush();
+        LogSystem::logger().reset();
+    }
+}
 
 // ============================================================================
 // Global Logging Functions (static, use LogSystem's logger)
