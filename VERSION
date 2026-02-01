@@ -1,0 +1,50 @@
+# ==============================================================================
+# ASE - Antares Simulation Engine
+# Version Registry (SSOT - Single Source of Truth)
+# ==============================================================================
+#
+# VERSION FORMAT: MM.mm.pp.BBBBB (e.g., 00.02.14.00127)
+#   MM    = MAJOR (manual, 00 until 1.0 release)
+#   mm    = MINOR (commits / 50)
+#   pp    = PATCH (commits % 50)
+#   BBBBB = BUILD (total commits)
+#
+# FORMAT per Component:
+#   ASE_{ABBR}=00.02.14.00127
+#   ASE_{ABBR}_NAME=Full Name
+#   ASE_{ABBR}_DESC=Short description
+#   ASE_{ABBR}_LAYER=0-5
+#   ASE_{ABBR}_STATUS=stub|poc|init|core|feat|refine|alpha|beta|stable
+#   ASE_{ABBR}_CREATED=YYYY-MM-DD
+#   ASE_{ABBR}_UPDATED=YYYY-MM-DD
+#
+# LAYERS:
+#   0 = Foundation (no ECS dependency)
+#   1 = Core (ECS, logging, databases, serialization)
+#   2 = Kernel (game loop, module loader, scheduler)
+#   3 = Modules (game systems, L3 inter-module via Hub only)
+#   4 = Plugins (optional, hot-loadable, L4 uses SDK)
+#   5 = Servers & Clients (executables)
+#
+# STATUS (auto-calculated from commits, max=refine):
+#   stub   = <5 commits, placeholder only
+#   poc    = 5-15 commits, proof of concept
+#   init   = 15-30 commits, initial development
+#   core   = 30-60 commits, core functionality
+#   feat   = 60-100 commits, feature development
+#   refine = 100+ commits, refinement (MAX AUTO)
+# STATUS (manual only):
+#   alpha  = Feature complete (set manually)
+#   beta   = API stable (set manually)
+#   stable = Production ready (set manually)
+#
+# ==============================================================================
+
+ASE_LOG=00.00.20.00020
+ASE_LOG_NAME=Logging
+ASE_LOG_DESC=Structured logging with spdlog
+ASE_LOG_LAYER=1
+ASE_LOG_STATUS=init
+ASE_LOG_CREATED=2025-12-15
+ASE_LOG_UPDATED=2026-01-30
+
