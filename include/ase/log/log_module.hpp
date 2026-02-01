@@ -10,12 +10,14 @@
  */
 
 #include <ase/ecs/app.hpp>
+#include <ase/log/version.hpp>
 #include <ase/log/log.hpp>
 
 namespace ase::log {
 
 struct LogModule {
     static constexpr const char* name() { return "ase-log"; }
+    static constexpr const char* version() { return MODULE_VERSION; }
 
     void build(ecs::App& app) {
         app.add_system<LogSystem>(ecs::Schedule::Initialization);
