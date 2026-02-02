@@ -327,7 +327,7 @@ def generate_impl(abbrev_bits: Dict[str, int], output_path: Path) -> bool:
         '        else if (std::strcmp(code, "WRN") == 0) g_level_mask.fetch_or(LVL_WRN);',
         '        else if (std::strcmp(code, "ERR") == 0) g_level_mask.fetch_or(LVL_ERR);',
         '        else if (std::strcmp(code, "CRT") == 0) g_level_mask.fetch_or(LVL_CRT);',
-        '    } else if (op == \'!\') {',
+        '    } else if (op == \'-\') {',
         '        uint32_t hash = 2166136261u;',
         '        for (const char* p = code; *p; ++p) {',
         '            char c = (*p >= \'A\' && *p <= \'Z\') ? static_cast<char>(*p + 32) : *p;',
