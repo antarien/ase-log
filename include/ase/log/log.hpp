@@ -18,7 +18,7 @@
  *
  * @module      ase-log
  * @layer       1 (Core)
- * @category    logging
+ * @category    error/logging
  * @created     2024-01-01
  * @modified    2025-01-21
  * @version     2.0.0
@@ -60,10 +60,12 @@
  */
 
 #include <ase/ecs/system.hpp>
+#include <ase/log/log_filter.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <memory>
+#include <source_location>
 #include <string>
 #include <string_view>
 
@@ -138,60 +140,78 @@ inline void shutdown() {
 // Global Logging Functions (static, use LogSystem's logger)
 // ============================================================================
 
-// Simple string logging
-// Use std::string to avoid GCC14 -Wdangling-reference false positive with spdlog/fmt
-inline void info(const std::string& msg) {
+// Simple string logging with compile-time category filtering
+// source_location default param captures CALL SITE, not this file
+inline void info(const std::string& msg,
+                 const std::source_location& loc = std::source_location::current()) {
+    if (!should_log(level::info, loc)) return;
     if (LogSystem::logger()) LogSystem::logger()->info("{}", msg);
 }
 
-inline void warn(const std::string& msg) {
+inline void warn(const std::string& msg,
+                 const std::source_location& loc = std::source_location::current()) {
+    if (!should_log(level::warn, loc)) return;
     if (LogSystem::logger()) LogSystem::logger()->warn("{}", msg);
 }
 
-inline void error(const std::string& msg) {
+inline void error(const std::string& msg,
+                  const std::source_location& loc = std::source_location::current()) {
+    if (!should_log(level::error, loc)) return;
     if (LogSystem::logger()) LogSystem::logger()->error("{}", msg);
 }
 
-inline void debug(const std::string& msg) {
+inline void debug(const std::string& msg,
+                  const std::source_location& loc = std::source_location::current()) {
+    if (!should_log(level::debug, loc)) return;
     if (LogSystem::logger()) LogSystem::logger()->debug("{}", msg);
 }
 
-inline void trace(const std::string& msg) {
+inline void trace(const std::string& msg,
+                  const std::source_location& loc = std::source_location::current()) {
+    if (!should_log(level::trace, loc)) return;
     if (LogSystem::logger()) LogSystem::logger()->trace("{}", msg);
 }
 
-inline void critical(const std::string& msg) {
+inline void critical(const std::string& msg,
+                     const std::source_location& loc = std::source_location::current()) {
+    if (!should_log(level::critical, loc)) return;
     if (LogSystem::logger()) LogSystem::logger()->critical("{}", msg);
 }
 
-// Formatted logging (fmt style)
+// Formatted logging (fmt style) with compile-time category filtering
 template<typename... Args>
 inline void info(spdlog::format_string_t<Args...> fmt, Args&&... args) {
+    if (!should_log(level::info)) return;
     if (LogSystem::logger()) LogSystem::logger()->info(fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void warn(spdlog::format_string_t<Args...> fmt, Args&&... args) {
+    if (!should_log(level::warn)) return;
     if (LogSystem::logger()) LogSystem::logger()->warn(fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void error(spdlog::format_string_t<Args...> fmt, Args&&... args) {
+    if (!should_log(level::error)) return;
     if (LogSystem::logger()) LogSystem::logger()->error(fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void debug(spdlog::format_string_t<Args...> fmt, Args&&... args) {
+    if (!should_log(level::debug)) return;
     if (LogSystem::logger()) LogSystem::logger()->debug(fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void trace(spdlog::format_string_t<Args...> fmt, Args&&... args) {
+    if (!should_log(level::trace)) return;
     if (LogSystem::logger()) LogSystem::logger()->trace(fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void critical(spdlog::format_string_t<Args...> fmt, Args&&... args) {
+    if (!should_log(level::critical)) return;
     if (LogSystem::logger()) LogSystem::logger()->critical(fmt, std::forward<Args>(args)...);
 }
 

@@ -54,10 +54,22 @@ configure_file(
 )
 
 # ==============================================================================
+# CODE GENERATION: Log Categories from Taxonomy
+# ==============================================================================
+# Runs every build but only writes if content changed (fast: read + compare).
+# No file(GLOB) - script internally scans taxonomy directory.
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+add_custom_target(ase-log-codegen ALL
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_log_cat.py"
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Checking log categories (regenerates only if taxonomy changed)..."
+)
+
+# ==============================================================================
 # BUILD CONFIGURATION
 # ==============================================================================
-
-
 
 message(STATUS "Configuring ${PROJECT_NAME} v${PROJECT_VERSION}")
 
@@ -67,8 +79,12 @@ add_library(${PROJECT_NAME} STATIC
     Logging system implementation.
     ]]
     src/log_system.cpp
+    src/log_cat_gen.cpp
 )
 add_library(ase::log ALIAS ${PROJECT_NAME})
+
+# Ensure codegen runs before compiling (checks taxonomy, regenerates if needed)
+add_dependencies(${PROJECT_NAME} ase-log-codegen)
 
 # Track module definition header - forces rebuild when module registration changes
 set_source_files_properties(

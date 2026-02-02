@@ -1,0 +1,155 @@
+#pragma once
+
+/**
+ * ASE CORE INFRASTRUCTURE HEADER
+ *
+ * @file        log_filter.hpp
+ * @brief       Runtime log filtering by category and level
+ * @description Fast log filtering that extracts categories from filenames.
+ *              Categories are matched against
+ *              taxonomy abbreviations (BCT, PST, NET, etc.) found in the
+ *              source filename. CLI: --log "+INF +WRN +ERR !BCT !PST"
+ *
+ * @module      ase-log
+ * @layer       1 (Core)
+ * @category    error/logging
+ * @created     2026-02-02
+ * @modified    2026-02-02
+ * @version     1.0.0
+ *
+ * CORE INFRASTRUCTURE COMPLIANCE
+ *
+ * [ ] NOT an ECS Component or System
+ * [ ] Layer dependencies correct (L0: no ASE deps, L1: L0 only)
+ * [ ] No global mutable state (constexpr/const only)
+ * [ ] No singletons or static mutable variables
+ * [ ] Thread-safe by design (pure functions or explicit mutex)
+ * [ ] All public functions documented with @brief, @param, @return
+ * [ ] constexpr where possible (compile-time evaluation)
+ * [ ] noexcept where possible (no-throw guarantee)
+ * [ ] [[nodiscard]] on functions returning values
+ * [ ] No magic numbers (use named constants)
+ * [ ] No implicit conversions (use explicit constructors)
+ * [ ] Header-only OR header+cpp pattern (not mixed)
+ * [ ] Include guards via #pragma once
+ * [ ] Namespace matches module: ase::{module}
+ * [ ] No circular dependencies
+ * [ ] No macros (except include guards) - use constexpr/templates
+ * [ ] API stable (changes require version bump)
+ */
+
+#include <ase/log/log_cat_gen.hpp>
+
+#include <source_location>
+
+namespace ase::log {
+
+// ============================================================================
+// Level Constants (aliases for cleaner API)
+// ============================================================================
+
+namespace level {
+constexpr uint8_t trace    = filter::LVL_TRC;  ///< Trace level
+constexpr uint8_t debug    = filter::LVL_DBG;  ///< Debug level
+constexpr uint8_t info     = filter::LVL_INF;  ///< Info level
+constexpr uint8_t warn     = filter::LVL_WRN;  ///< Warning level
+constexpr uint8_t error    = filter::LVL_ERR;  ///< Error level
+constexpr uint8_t critical = filter::LVL_CRT;  ///< Critical level
+constexpr uint8_t all      = filter::LVL_ALL;  ///< All levels enabled
+}  // namespace level
+
+// ============================================================================
+// Category Extraction
+// ============================================================================
+
+/**
+ * @brief Extract categories from the calling file's path.
+ * @param loc Source location (defaults to caller's location)
+ * @return CategoryMask with bits set for matching taxonomy abbreviations
+ */
+[[nodiscard]] inline filter::CategoryMask get_file_categories(
+    const std::source_location& loc = std::source_location::current()) noexcept {
+    return filter::file_to_categories(loc.file_name());
+}
+
+// ============================================================================
+// Runtime Filter Check
+// ============================================================================
+
+/**
+ * @brief Check if a log message should be emitted based on level and file categories.
+ * @param lvl Log level (use level::trace, level::info, etc.)
+ * @param loc Source location (defaults to caller's location)
+ * @return true if message should be logged, false if filtered out
+ */
+[[nodiscard]] inline bool should_log(
+    uint8_t lvl,
+    const std::source_location& loc = std::source_location::current()) noexcept {
+    return filter::should_log(lvl, filter::file_to_categories(loc.file_name()));
+}
+
+/**
+ * @brief Check if a log message should be emitted (pre-computed categories).
+ * @param lvl Log level
+ * @param file_cats Pre-computed category mask
+ * @return true if message should be logged
+ */
+[[nodiscard]] inline bool should_log(uint8_t lvl, const filter::CategoryMask& file_cats) noexcept {
+    return filter::should_log(lvl, file_cats);
+}
+
+// ============================================================================
+// CLI Argument Parsing
+// ============================================================================
+
+/**
+ * @brief Parse log filter string from CLI arguments.
+ * @param filter_str Space-separated filter tokens (+LEVEL or !CATEGORY)
+ *
+ * Format: "+LEVEL +LEVEL !CATEGORY !CATEGORY"
+ *   +TRC, +DBG, +INF, +WRN, +ERR, +CRT = Enable log level
+ *   !XXX = Block category (taxonomy abbreviation)
+ *
+ * Example: "+INF +WRN +ERR !BCT !PST"
+ *   - Show only INFO, WARN, ERROR levels
+ *   - Block any file containing BCT or PST in filename
+ */
+inline void parse_cli_filter(const char* filter_str) noexcept {
+    filter::parse_log_filter(filter_str);
+}
+
+/**
+ * @brief Set log level mask directly.
+ * @param mask Bitmask of enabled levels (e.g., level::info | level::warn)
+ */
+inline void set_level_mask(uint8_t mask) noexcept {
+    filter::g_level_mask.store(mask, std::memory_order_relaxed);
+}
+
+/**
+ * @brief Get current log level mask.
+ * @return Bitmask of enabled levels
+ */
+[[nodiscard]] inline uint8_t get_level_mask() noexcept {
+    return filter::g_level_mask.load(std::memory_order_relaxed);
+}
+
+/**
+ * @brief Block a category by bit position.
+ * @param bit_pos Category bit position (use filter::BIT_XXX constants)
+ */
+inline void block_category(int bit_pos) noexcept {
+    filter::g_blocked_categories.set(bit_pos);
+}
+
+/**
+ * @brief Reset all filters to defaults (all levels enabled, no categories blocked).
+ */
+inline void reset_filters() noexcept {
+    filter::g_level_mask.store(filter::LVL_ALL, std::memory_order_relaxed);
+    for (int i = 0; i < filter::CHUNK_COUNT; ++i) {
+        filter::g_blocked_categories.chunks[i] = 0;
+    }
+}
+
+}  // namespace ase::log
