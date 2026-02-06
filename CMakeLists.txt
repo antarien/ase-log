@@ -80,6 +80,16 @@ add_library(${PROJECT_NAME} STATIC
     ]]
     src/log_system.cpp
     src/log_cat_gen.cpp
+
+    #[[
+    HEADERS
+    Public header files for the logging module.
+    ]]
+    include/ase/log/colors.hpp
+    include/ase/log/log.hpp
+    include/ase/log/log_cat_gen.hpp
+    include/ase/log/log_filter.hpp
+    include/ase/log/log_module.hpp
 )
 add_library(ase::log ALIAS ${PROJECT_NAME})
 
