@@ -56,16 +56,61 @@ configure_file(
 # ==============================================================================
 # CODE GENERATION: Log Categories from Taxonomy
 # ==============================================================================
-# Runs every build but only writes if content changed (fast: read + compare).
-# No file(GLOB) - script internally scans taxonomy directory.
+# Regenerates log_cat_gen.hpp/.cpp only when taxonomy JSON files change.
+# Uses a stamp file so Ninja can track the output and skip when up-to-date.
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-add_custom_target(ase-log-codegen ALL
+set(_TAXONOMY_DIR "${CMAKE_SOURCE_DIR}/core/core/ase-validator/ecs_validator/data/taxonomy")
+set(_STAMP_FILE "${CMAKE_CURRENT_BINARY_DIR}/ase-log-codegen.stamp")
+
+add_custom_command(
+    OUTPUT ${_STAMP_FILE}
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_log_cat.py"
+    COMMAND ${CMAKE_COMMAND} -E touch ${_STAMP_FILE}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_log_cat.py"
+            "${_TAXONOMY_DIR}/_index.json"
+            "${_TAXONOMY_DIR}/01_prp_property.json"
+            "${_TAXONOMY_DIR}/02_sta_state.json"
+            "${_TAXONOMY_DIR}/03_act_action.json"
+            "${_TAXONOMY_DIR}/04_ent_entity.json"
+            "${_TAXONOMY_DIR}/05_rel_relation.json"
+            "${_TAXONOMY_DIR}/06_str_structure.json"
+            "${_TAXONOMY_DIR}/07_prc_process.json"
+            "${_TAXONOMY_DIR}/08_per_perception.json"
+            "${_TAXONOMY_DIR}/09_com_communication.json"
+            "${_TAXONOMY_DIR}/10_pst_persistence.json"
+            "${_TAXONOMY_DIR}/11_bio_biology.json"
+            "${_TAXONOMY_DIR}/12_eco_ecology.json"
+            "${_TAXONOMY_DIR}/13_skl_skill.json"
+            "${_TAXONOMY_DIR}/14_cmb_combat.json"
+            "${_TAXONOMY_DIR}/15_soc_social.json"
+            "${_TAXONOMY_DIR}/16_bdi_bdi.json"
+            "${_TAXONOMY_DIR}/17_nav_navigation.json"
+            "${_TAXONOMY_DIR}/18_ter_terrain.json"
+            "${_TAXONOMY_DIR}/19_cel_celestial.json"
+            "${_TAXONOMY_DIR}/20_atm_atmosphere.json"
+            "${_TAXONOMY_DIR}/21_tim_time.json"
+            "${_TAXONOMY_DIR}/22_cal_calendar.json"
+            "${_TAXONOMY_DIR}/23_eph_ephemeris.json"
+            "${_TAXONOMY_DIR}/24_gis_gis.json"
+            "${_TAXONOMY_DIR}/25_sig_signature.json"
+            "${_TAXONOMY_DIR}/26_rec_recognition.json"
+            "${_TAXONOMY_DIR}/27_hub_hub.json"
+            "${_TAXONOMY_DIR}/28_net_network.json"
+            "${_TAXONOMY_DIR}/29_ecs_ecs.json"
+            "${_TAXONOMY_DIR}/30_ren_render.json"
+            "${_TAXONOMY_DIR}/31_inp_input.json"
+            "${_TAXONOMY_DIR}/32_aud_audio.json"
+            "${_TAXONOMY_DIR}/33_mth_math.json"
+            "${_TAXONOMY_DIR}/34_cfg_config.json"
+            "${_TAXONOMY_DIR}/35_err_error.json"
+            "${_TAXONOMY_DIR}/36_ant_antares.json"
     COMMENT "Checking log categories (regenerates only if taxonomy changed)..."
 )
+
+add_custom_target(ase-log-codegen DEPENDS ${_STAMP_FILE})
 
 # ==============================================================================
 # BUILD CONFIGURATION
