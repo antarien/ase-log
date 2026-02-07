@@ -228,6 +228,7 @@ inline void flush() {
 // For forwarding browser console logs via RTC
 // ============================================================================
 
+// Unfiltered client logging (backward compatible, no client filter applied)
 inline void client_info(const std::string& msg) {
     if (LogSystem::client_logger()) LogSystem::client_logger()->info("{}", msg);
 }
@@ -242,6 +243,57 @@ inline void client_error(const std::string& msg) {
 
 inline void client_debug(const std::string& msg) {
     if (LogSystem::client_logger()) LogSystem::client_logger()->debug("{}", msg);
+}
+
+// Filtered client logging with client_bit (use 1ULL << client_id)
+// Respects level filter, category filter, AND client filter (+CLT:01, -CLT)
+inline void client_info(uint64_t client_bit, const std::string& msg,
+                        const std::source_location& loc = std::source_location::current()) {
+    if (!should_log_client(level::info, client_bit, loc)) return;
+    if (LogSystem::client_logger()) LogSystem::client_logger()->info("{}", msg);
+}
+
+inline void client_warn(uint64_t client_bit, const std::string& msg,
+                        const std::source_location& loc = std::source_location::current()) {
+    if (!should_log_client(level::warn, client_bit, loc)) return;
+    if (LogSystem::client_logger()) LogSystem::client_logger()->warn("{}", msg);
+}
+
+inline void client_error(uint64_t client_bit, const std::string& msg,
+                         const std::source_location& loc = std::source_location::current()) {
+    if (!should_log_client(level::error, client_bit, loc)) return;
+    if (LogSystem::client_logger()) LogSystem::client_logger()->error("{}", msg);
+}
+
+inline void client_debug(uint64_t client_bit, const std::string& msg,
+                         const std::source_location& loc = std::source_location::current()) {
+    if (!should_log_client(level::debug, client_bit, loc)) return;
+    if (LogSystem::client_logger()) LogSystem::client_logger()->debug("{}", msg);
+}
+
+// Filtered client logging with fmt-style formatting
+template<typename... Args>
+inline void client_info(uint64_t client_bit, spdlog::format_string_t<Args...> fmt, Args&&... args) {
+    if (!should_log_client(level::info, client_bit)) return;
+    if (LogSystem::client_logger()) LogSystem::client_logger()->info(fmt, std::forward<Args>(args)...);
+}
+
+template<typename... Args>
+inline void client_warn(uint64_t client_bit, spdlog::format_string_t<Args...> fmt, Args&&... args) {
+    if (!should_log_client(level::warn, client_bit)) return;
+    if (LogSystem::client_logger()) LogSystem::client_logger()->warn(fmt, std::forward<Args>(args)...);
+}
+
+template<typename... Args>
+inline void client_error(uint64_t client_bit, spdlog::format_string_t<Args...> fmt, Args&&... args) {
+    if (!should_log_client(level::error, client_bit)) return;
+    if (LogSystem::client_logger()) LogSystem::client_logger()->error(fmt, std::forward<Args>(args)...);
+}
+
+template<typename... Args>
+inline void client_debug(uint64_t client_bit, spdlog::format_string_t<Args...> fmt, Args&&... args) {
+    if (!should_log_client(level::debug, client_bit)) return;
+    if (LogSystem::client_logger()) LogSystem::client_logger()->debug(fmt, std::forward<Args>(args)...);
 }
 
 // ============================================================================

@@ -19,6 +19,8 @@ namespace ase::log::filter {
 
 std::atomic<uint8_t> g_level_mask{LVL_ALL};
 CategoryMask g_blocked_categories{};
+std::atomic<uint64_t> g_client_mask{0};
+std::atomic<uint64_t> g_blocked_clients{0};
 
 // ============================================================================
 // CategoryMask Implementation
@@ -14398,11 +14400,35 @@ bool should_log(uint8_t level, const CategoryMask& file_cats) {
     return true;
 }
 
+bool should_log_client(uint8_t level, const CategoryMask& file_cats, uint64_t client_bit) {
+    if (!(level & g_level_mask.load(std::memory_order_relaxed))) return false;
+    if (file_cats.intersects(g_blocked_categories)) return false;
+    if (client_bit) {
+        if (client_bit & g_blocked_clients.load(std::memory_order_relaxed)) return false;
+        uint64_t mask = g_client_mask.load(std::memory_order_relaxed);
+        if (mask && !(client_bit & mask)) return false;
+    }
+    return true;
+}
+
 // ============================================================================
 // CLI Argument Parser
 // ============================================================================
 
 namespace {
+
+void parse_client_ids(const char* ids, std::atomic<uint64_t>& target) {
+    while (*ids) {
+        int id = 0;
+        while (*ids >= '0' && *ids <= '9') { id = id * 10 + (*ids - '0'); ids++; }
+        if (id >= 0 && id < 64) {
+            uint64_t old_val = target.load(std::memory_order_relaxed);
+            target.store(old_val | (1ULL << id), std::memory_order_relaxed);
+        }
+        if (*ids == ',') ids++;
+        else break;
+    }
+}
 
 void parse_filter_token(const char* token) {
     if (!token || !*token) return;
@@ -14411,6 +14437,17 @@ void parse_filter_token(const char* token) {
     const char* code = token + 1;
     
     if (op == '+') {
+        // +CLT:01 or +CLT:01,03 → client whitelist
+        if (std::strncmp(code, "CLT:", 4) == 0) {
+            parse_client_ids(code + 4, g_client_mask);
+            return;
+        }
+        // +CLT → all clients in whitelist
+        if (std::strcmp(code, "CLT") == 0) {
+            g_client_mask.store(0xFFFFFFFFFFFFFFFFULL, std::memory_order_relaxed);
+            return;
+        }
+        // +LEVEL
         if (std::strcmp(code, "TRC") == 0) g_level_mask.fetch_or(LVL_TRC);
         else if (std::strcmp(code, "DBG") == 0) g_level_mask.fetch_or(LVL_DBG);
         else if (std::strcmp(code, "INF") == 0) g_level_mask.fetch_or(LVL_INF);
@@ -14418,6 +14455,17 @@ void parse_filter_token(const char* token) {
         else if (std::strcmp(code, "ERR") == 0) g_level_mask.fetch_or(LVL_ERR);
         else if (std::strcmp(code, "CRT") == 0) g_level_mask.fetch_or(LVL_CRT);
     } else if (op == '-') {
+        // -CLT → block all clients
+        if (std::strcmp(code, "CLT") == 0) {
+            g_blocked_clients.store(0xFFFFFFFFFFFFFFFFULL, std::memory_order_relaxed);
+            return;
+        }
+        // -CLT:05 or -CLT:05,07 → block specific clients
+        if (std::strncmp(code, "CLT:", 4) == 0) {
+            parse_client_ids(code + 4, g_blocked_clients);
+            return;
+        }
+        // -CATEGORY
         uint32_t hash = 2166136261u;
         for (const char* p = code; *p; ++p) {
             char c = (*p >= 'A' && *p <= 'Z') ? static_cast<char>(*p + 32) : *p;
@@ -14433,13 +14481,16 @@ void parse_filter_token(const char* token) {
 void parse_log_filter(const char* filter_str) {
     if (!filter_str) return;
     
+    // Check if any +LEVEL token is present (skip +CLT which is client filter)
     bool has_level = false;
     for (const char* p = filter_str; *p; ++p) {
-        if (*p == '+') { has_level = true; break; }
+        if (*p == '+' && std::strncmp(p + 1, "CLT", 3) != 0) {
+            has_level = true; break;
+        }
     }
     if (has_level) g_level_mask.store(0);
     
-    char token[16];
+    char token[128];
     int ti = 0;
     for (const char* p = filter_str; ; ++p) {
         if (*p == ' ' || *p == '\0') {
@@ -14449,7 +14500,7 @@ void parse_log_filter(const char* filter_str) {
                 ti = 0;
             }
             if (*p == '\0') break;
-        } else if (ti < 15) {
+        } else if (ti < 127) {
             token[ti++] = *p;
         }
     }

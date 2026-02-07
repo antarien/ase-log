@@ -99,6 +99,34 @@ constexpr uint8_t all      = filter::LVL_ALL;  ///< All levels enabled
 }
 
 // ============================================================================
+// Client Filter Check
+// ============================================================================
+
+/**
+ * @brief Check if a client log message should be emitted (level + category + client filter).
+ * @param lvl Log level (use level::trace, level::info, etc.)
+ * @param client_bit Client bitmask (1ULL << client_id, 0 = server log, always passes)
+ * @param loc Source location (defaults to caller's location)
+ * @return true if message should be logged, false if filtered out
+ */
+[[nodiscard]] inline bool should_log_client(
+    uint8_t lvl, uint64_t client_bit,
+    const std::source_location& loc = std::source_location::current()) noexcept {
+    return filter::should_log_client(lvl, filter::file_to_categories(loc.file_name()), client_bit);
+}
+
+/**
+ * @brief Check if a client log message should be emitted (pre-computed categories).
+ * @param lvl Log level
+ * @param file_cats Pre-computed category mask
+ * @param client_bit Client bitmask
+ * @return true if message should be logged
+ */
+[[nodiscard]] inline bool should_log_client(uint8_t lvl, const filter::CategoryMask& file_cats, uint64_t client_bit) noexcept {
+    return filter::should_log_client(lvl, file_cats, client_bit);
+}
+
+// ============================================================================
 // CLI Argument Parsing
 // ============================================================================
 
@@ -143,13 +171,37 @@ inline void block_category(int bit_pos) noexcept {
 }
 
 /**
- * @brief Reset all filters to defaults (all levels enabled, no categories blocked).
+ * @brief Block a specific client by ID (0-63).
+ * @param client_id Client ID (0-63)
+ */
+inline void block_client(int client_id) noexcept {
+    if (client_id >= 0 && client_id < 64) {
+        uint64_t old_val = filter::g_blocked_clients.load(std::memory_order_relaxed);
+        filter::g_blocked_clients.store(old_val | (1ULL << client_id), std::memory_order_relaxed);
+    }
+}
+
+/**
+ * @brief Add a client to the whitelist (0-63).
+ * @param client_id Client ID (0-63)
+ */
+inline void whitelist_client(int client_id) noexcept {
+    if (client_id >= 0 && client_id < 64) {
+        uint64_t old_val = filter::g_client_mask.load(std::memory_order_relaxed);
+        filter::g_client_mask.store(old_val | (1ULL << client_id), std::memory_order_relaxed);
+    }
+}
+
+/**
+ * @brief Reset all filters to defaults (all levels enabled, no categories/clients blocked).
  */
 inline void reset_filters() noexcept {
     filter::g_level_mask.store(filter::LVL_ALL, std::memory_order_relaxed);
     for (int i = 0; i < filter::CHUNK_COUNT; ++i) {
         filter::g_blocked_categories.chunks[i] = 0;
     }
+    filter::g_client_mask.store(0, std::memory_order_relaxed);
+    filter::g_blocked_clients.store(0, std::memory_order_relaxed);
 }
 
 }  // namespace ase::log

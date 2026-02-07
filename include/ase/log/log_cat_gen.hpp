@@ -56,6 +56,13 @@ extern std::atomic<uint8_t> g_level_mask;
 extern CategoryMask g_blocked_categories;
 
 // ============================================================================
+// Client Filter State (defined in log_cat_gen.cpp)
+// ============================================================================
+
+extern std::atomic<uint64_t> g_client_mask;      ///< Whitelist (0 = all pass)
+extern std::atomic<uint64_t> g_blocked_clients;   ///< Blacklist bitmask
+
+// ============================================================================
 // Function Declarations (implemented in log_cat_gen.cpp)
 // ============================================================================
 
@@ -68,7 +75,10 @@ CategoryMask file_to_categories(const char* file);
 /// Check if log should be emitted
 bool should_log(uint8_t level, const CategoryMask& file_cats);
 
-/// Parse CLI filter string (e.g., "+INF +WRN !BCT")
+/// Check if client log should be emitted (level + category + client filter)
+bool should_log_client(uint8_t level, const CategoryMask& file_cats, uint64_t client_bit);
+
+/// Parse CLI filter string (e.g., "+INF +WRN -BCT +CLT:01")
 void parse_log_filter(const char* filter_str);
 
 }  // namespace ase::log::filter
