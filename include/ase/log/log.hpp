@@ -68,6 +68,7 @@
 #include <source_location>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 namespace ase::log {
 
@@ -178,41 +179,69 @@ inline void critical(const std::string& msg,
     if (LogSystem::logger()) LogSystem::logger()->critical("{}", msg);
 }
 
-// Formatted logging (fmt style) with compile-time category filtering
+// ============================================================================
+// Format string wrapper that captures caller's filename via __builtin_FILE()
+// ============================================================================
+
+/// Wraps spdlog::format_string_t and captures the caller's source filename.
+/// The consteval constructor with __builtin_FILE() default captures the CALL SITE,
+/// enabling category-based filtering (blacklist AND whitelist) for fmt-style calls.
 template<typename... Args>
-inline void info(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (!should_log(level::info)) return;
-    if (LogSystem::logger()) LogSystem::logger()->info(fmt, std::forward<Args>(args)...);
+struct log_fmt {
+    spdlog::format_string_t<Args...> fmt;
+    const char* file;
+
+    template<typename S>
+        requires (!std::is_arithmetic_v<std::remove_cvref_t<S>>)
+    consteval log_fmt(const S& s, const char* f = __builtin_FILE())
+        : fmt(s), file(f) {}
+};
+
+// Formatted logging (fmt style) with full category filtering.
+// log_fmt captures the caller's filename in its consteval constructor,
+// so category blacklist AND whitelist work for all fmt-style log calls.
+// Fast path: level check (1 atomic load, ~3 cycles) rejects early before
+// file_to_categories() hash computation (~100 cycles) runs.
+template<typename... Args>
+inline void info(log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
+    if (!(filter::LVL_INF & filter::g_level_mask.load(std::memory_order_relaxed))) return;
+    if (!filter::should_log(filter::LVL_INF, filter::file_to_categories(lf.file))) return;
+    if (LogSystem::logger()) LogSystem::logger()->info(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
-inline void warn(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (!should_log(level::warn)) return;
-    if (LogSystem::logger()) LogSystem::logger()->warn(fmt, std::forward<Args>(args)...);
+inline void warn(log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
+    if (!(filter::LVL_WRN & filter::g_level_mask.load(std::memory_order_relaxed))) return;
+    if (!filter::should_log(filter::LVL_WRN, filter::file_to_categories(lf.file))) return;
+    if (LogSystem::logger()) LogSystem::logger()->warn(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
-inline void error(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (!should_log(level::error)) return;
-    if (LogSystem::logger()) LogSystem::logger()->error(fmt, std::forward<Args>(args)...);
+inline void error(log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
+    if (!(filter::LVL_ERR & filter::g_level_mask.load(std::memory_order_relaxed))) return;
+    if (!filter::should_log(filter::LVL_ERR, filter::file_to_categories(lf.file))) return;
+    if (LogSystem::logger()) LogSystem::logger()->error(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
-inline void debug(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (!should_log(level::debug)) return;
-    if (LogSystem::logger()) LogSystem::logger()->debug(fmt, std::forward<Args>(args)...);
+inline void debug(log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
+    if (!(filter::LVL_DBG & filter::g_level_mask.load(std::memory_order_relaxed))) return;
+    if (!filter::should_log(filter::LVL_DBG, filter::file_to_categories(lf.file))) return;
+    if (LogSystem::logger()) LogSystem::logger()->debug(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
-inline void trace(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (!should_log(level::trace)) return;
-    if (LogSystem::logger()) LogSystem::logger()->trace(fmt, std::forward<Args>(args)...);
+inline void trace(log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
+    if (!(filter::LVL_TRC & filter::g_level_mask.load(std::memory_order_relaxed))) return;
+    if (!filter::should_log(filter::LVL_TRC, filter::file_to_categories(lf.file))) return;
+    if (LogSystem::logger()) LogSystem::logger()->trace(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
-inline void critical(spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (!should_log(level::critical)) return;
-    if (LogSystem::logger()) LogSystem::logger()->critical(fmt, std::forward<Args>(args)...);
+inline void critical(log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
+    if (!(filter::LVL_CRT & filter::g_level_mask.load(std::memory_order_relaxed))) return;
+    if (!filter::should_log(filter::LVL_CRT, filter::file_to_categories(lf.file))) return;
+    if (LogSystem::logger()) LogSystem::logger()->critical(lf.fmt, std::forward<Args>(args)...);
 }
 
 inline void set_level(spdlog::level::level_enum level) {
@@ -272,28 +301,33 @@ inline void client_debug(uint64_t client_bit, const std::string& msg,
 }
 
 // Filtered client logging with fmt-style formatting
+// Full filtering: level (early-out) + category (via log_fmt) + client filter
 template<typename... Args>
-inline void client_info(uint64_t client_bit, spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (!should_log_client(level::info, client_bit)) return;
-    if (LogSystem::client_logger()) LogSystem::client_logger()->info(fmt, std::forward<Args>(args)...);
+inline void client_info(uint64_t client_bit, log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
+    if (!(filter::LVL_INF & filter::g_level_mask.load(std::memory_order_relaxed))) return;
+    if (!filter::should_log_client(filter::LVL_INF, filter::file_to_categories(lf.file), client_bit)) return;
+    if (LogSystem::client_logger()) LogSystem::client_logger()->info(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
-inline void client_warn(uint64_t client_bit, spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (!should_log_client(level::warn, client_bit)) return;
-    if (LogSystem::client_logger()) LogSystem::client_logger()->warn(fmt, std::forward<Args>(args)...);
+inline void client_warn(uint64_t client_bit, log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
+    if (!(filter::LVL_WRN & filter::g_level_mask.load(std::memory_order_relaxed))) return;
+    if (!filter::should_log_client(filter::LVL_WRN, filter::file_to_categories(lf.file), client_bit)) return;
+    if (LogSystem::client_logger()) LogSystem::client_logger()->warn(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
-inline void client_error(uint64_t client_bit, spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (!should_log_client(level::error, client_bit)) return;
-    if (LogSystem::client_logger()) LogSystem::client_logger()->error(fmt, std::forward<Args>(args)...);
+inline void client_error(uint64_t client_bit, log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
+    if (!(filter::LVL_ERR & filter::g_level_mask.load(std::memory_order_relaxed))) return;
+    if (!filter::should_log_client(filter::LVL_ERR, filter::file_to_categories(lf.file), client_bit)) return;
+    if (LogSystem::client_logger()) LogSystem::client_logger()->error(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
-inline void client_debug(uint64_t client_bit, spdlog::format_string_t<Args...> fmt, Args&&... args) {
-    if (!should_log_client(level::debug, client_bit)) return;
-    if (LogSystem::client_logger()) LogSystem::client_logger()->debug(fmt, std::forward<Args>(args)...);
+inline void client_debug(uint64_t client_bit, log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
+    if (!(filter::LVL_DBG & filter::g_level_mask.load(std::memory_order_relaxed))) return;
+    if (!filter::should_log_client(filter::LVL_DBG, filter::file_to_categories(lf.file), client_bit)) return;
+    if (LogSystem::client_logger()) LogSystem::client_logger()->debug(lf.fmt, std::forward<Args>(args)...);
 }
 
 // ============================================================================

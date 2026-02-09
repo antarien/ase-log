@@ -8,7 +8,7 @@
  * @description Fast log filtering that extracts categories from filenames.
  *              Categories are matched against
  *              taxonomy abbreviations (BCT, PST, NET, etc.) found in the
- *              source filename. CLI: --log "+INF +WRN +ERR !BCT !PST"
+ *              source filename. CLI: --log "+INF +WRN +ERR -BCT -PST"
  *
  * @module      ase-log
  * @layer       1 (Core)
@@ -132,15 +132,21 @@ constexpr uint8_t all      = filter::LVL_ALL;  ///< All levels enabled
 
 /**
  * @brief Parse log filter string from CLI arguments.
- * @param filter_str Space-separated filter tokens (+LEVEL or !CATEGORY)
+ * @param filter_str Space-separated filter tokens
  *
- * Format: "+LEVEL +LEVEL !CATEGORY !CATEGORY"
+ * Format: "+LEVEL +CATEGORY -CATEGORY +CLT:ID -CLT:ID"
  *   +TRC, +DBG, +INF, +WRN, +ERR, +CRT = Enable log level
- *   !XXX = Block category (taxonomy abbreviation)
+ *   +XXX = Whitelist category (ONLY show files with this category)
+ *   -XXX = Block category (hide files containing this category)
+ *   +CLT:01 = Show only client 01 logs
+ *   -CLT = Block all client logs
  *
- * Example: "+INF +WRN +ERR !BCT !PST"
- *   - Show only INFO, WARN, ERROR levels
- *   - Block any file containing BCT or PST in filename
+ * Example: "+DBG +TIM"
+ *   - Show only DEBUG level, only files containing TIM category
+ *   - Result: only TimeLogOutpSystem etc. visible
+ *
+ * Example: "+DBG +WRN +ERR -BCT -PST"
+ *   - Show DEBUG, WARN, ERROR; block files with BCT or PST
  */
 inline void parse_cli_filter(const char* filter_str) noexcept {
     filter::parse_log_filter(filter_str);
@@ -199,7 +205,9 @@ inline void reset_filters() noexcept {
     filter::g_level_mask.store(filter::LVL_ALL, std::memory_order_relaxed);
     for (int i = 0; i < filter::CHUNK_COUNT; ++i) {
         filter::g_blocked_categories.chunks[i] = 0;
+        filter::g_whitelisted_categories.chunks[i] = 0;
     }
+    filter::g_has_whitelist.store(false, std::memory_order_relaxed);
     filter::g_client_mask.store(0, std::memory_order_relaxed);
     filter::g_blocked_clients.store(0, std::memory_order_relaxed);
 }
