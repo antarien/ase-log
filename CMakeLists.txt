@@ -107,7 +107,10 @@ add_custom_command(
             "${_TAXONOMY_DIR}/34_cfg_config.json"
             "${_TAXONOMY_DIR}/35_err_error.json"
             "${_TAXONOMY_DIR}/36_ant_antares.json"
-    COMMENT "Checking log categories (regenerates only if taxonomy changed)..."
+            "${CMAKE_SOURCE_DIR}/modules/ase-hub/data/hub_constants.json"
+            "${CMAKE_SOURCE_DIR}/modules/ase-hub/data/hub_metrics.json"
+            "${CMAKE_SOURCE_DIR}/modules/ase-hub/data/hub_tags.json"
+    COMMENT "Checking log categories (regenerates only if taxonomy or hub JSON changed)..."
 )
 
 add_custom_target(ase-log-codegen DEPENDS ${_STAMP_FILE})
@@ -163,6 +166,8 @@ target_link_libraries(${PROJECT_NAME}
     PUBLIC
         ase::ecs         # Layer 1 - System base class
         spdlog::spdlog   # External - Logging backend
+    PRIVATE
+        libcuckoo        # O(1) concurrent hashmap for log filter engine
 )
 #[[ VERBOTEN: No Layer 3 dependencies! ]]
 

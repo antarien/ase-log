@@ -73,37 +73,30 @@ constexpr uint8_t all      = filter::LVL_ALL;  ///< All levels enabled
 }
 
 // ============================================================================
-// Runtime Filter Check
+// Runtime Filter Check (3-axis: level × category × lifecycle phase)
 // ============================================================================
 
 /**
- * @brief Check if a log message should be emitted based on level and file categories.
+ * @brief Check if a log message should be emitted (level + file + function categories).
  * @param lvl Log level (use level::trace, level::info, etc.)
  * @param loc Source location (defaults to caller's location)
  * @return true if message should be logged, false if filtered out
+ *
+ * Extracts category tokens from BOTH the source filename AND function name.
+ * This enables lifecycle-phase filtering: +TICK, -START, +STOP, etc.
  */
-[[nodiscard]] inline bool should_log(
+[[nodiscard]] inline bool should_log_loc(
     uint8_t lvl,
     const std::source_location& loc = std::source_location::current()) noexcept {
-    return filter::should_log(lvl, filter::file_to_categories(loc.file_name()));
-}
-
-/**
- * @brief Check if a log message should be emitted (pre-computed categories).
- * @param lvl Log level
- * @param file_cats Pre-computed category mask
- * @return true if message should be logged
- */
-[[nodiscard]] inline bool should_log(uint8_t lvl, const filter::CategoryMask& file_cats) noexcept {
-    return filter::should_log(lvl, file_cats);
+    return filter::should_log_loc(lvl, loc.file_name(), loc.function_name());
 }
 
 // ============================================================================
-// Client Filter Check
+// Client Filter Check (4-axis: level × category × lifecycle × client)
 // ============================================================================
 
 /**
- * @brief Check if a client log message should be emitted (level + category + client filter).
+ * @brief Check if a client log message should be emitted.
  * @param lvl Log level (use level::trace, level::info, etc.)
  * @param client_bit Client bitmask (1ULL << client_id, 0 = server log, always passes)
  * @param loc Source location (defaults to caller's location)
@@ -112,18 +105,7 @@ constexpr uint8_t all      = filter::LVL_ALL;  ///< All levels enabled
 [[nodiscard]] inline bool should_log_client(
     uint8_t lvl, uint64_t client_bit,
     const std::source_location& loc = std::source_location::current()) noexcept {
-    return filter::should_log_client(lvl, filter::file_to_categories(loc.file_name()), client_bit);
-}
-
-/**
- * @brief Check if a client log message should be emitted (pre-computed categories).
- * @param lvl Log level
- * @param file_cats Pre-computed category mask
- * @param client_bit Client bitmask
- * @return true if message should be logged
- */
-[[nodiscard]] inline bool should_log_client(uint8_t lvl, const filter::CategoryMask& file_cats, uint64_t client_bit) noexcept {
-    return filter::should_log_client(lvl, file_cats, client_bit);
+    return filter::should_log_client_loc(lvl, loc.file_name(), loc.function_name(), client_bit);
 }
 
 // ============================================================================
@@ -210,6 +192,7 @@ inline void reset_filters() noexcept {
     filter::g_has_whitelist.store(false, std::memory_order_relaxed);
     filter::g_client_mask.store(0, std::memory_order_relaxed);
     filter::g_blocked_clients.store(0, std::memory_order_relaxed);
+    filter::invalidate_loc_cache();
 }
 
 }  // namespace ase::log

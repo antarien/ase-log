@@ -145,37 +145,37 @@ inline void shutdown() {
 // source_location default param captures CALL SITE, not this file
 inline void info(const std::string& msg,
                  const std::source_location& loc = std::source_location::current()) {
-    if (!should_log(level::info, loc)) return;
+    if (!should_log_loc(level::info, loc)) return;
     if (LogSystem::logger()) LogSystem::logger()->info("{}", msg);
 }
 
 inline void warn(const std::string& msg,
                  const std::source_location& loc = std::source_location::current()) {
-    if (!should_log(level::warn, loc)) return;
+    if (!should_log_loc(level::warn, loc)) return;
     if (LogSystem::logger()) LogSystem::logger()->warn("{}", msg);
 }
 
 inline void error(const std::string& msg,
                   const std::source_location& loc = std::source_location::current()) {
-    if (!should_log(level::error, loc)) return;
+    if (!should_log_loc(level::error, loc)) return;
     if (LogSystem::logger()) LogSystem::logger()->error("{}", msg);
 }
 
 inline void debug(const std::string& msg,
                   const std::source_location& loc = std::source_location::current()) {
-    if (!should_log(level::debug, loc)) return;
+    if (!should_log_loc(level::debug, loc)) return;
     if (LogSystem::logger()) LogSystem::logger()->debug("{}", msg);
 }
 
 inline void trace(const std::string& msg,
                   const std::source_location& loc = std::source_location::current()) {
-    if (!should_log(level::trace, loc)) return;
+    if (!should_log_loc(level::trace, loc)) return;
     if (LogSystem::logger()) LogSystem::logger()->trace("{}", msg);
 }
 
 inline void critical(const std::string& msg,
                      const std::source_location& loc = std::source_location::current()) {
-    if (!should_log(level::critical, loc)) return;
+    if (!should_log_loc(level::critical, loc)) return;
     if (LogSystem::logger()) LogSystem::logger()->critical("{}", msg);
 }
 
@@ -183,64 +183,59 @@ inline void critical(const std::string& msg,
 // Format string wrapper that captures caller's filename via __builtin_FILE()
 // ============================================================================
 
-/// Wraps spdlog::format_string_t and captures the caller's source filename.
-/// The consteval constructor with __builtin_FILE() default captures the CALL SITE,
-/// enabling category-based filtering (blacklist AND whitelist) for fmt-style calls.
+/// Wraps spdlog::format_string_t and captures the caller's source filename + function.
+/// The consteval constructor with __builtin_FILE()/__builtin_FUNCTION() defaults capture
+/// the CALL SITE, enabling category-based filtering (file + lifecycle phase) for fmt-style calls.
 template<typename... Args>
 struct log_fmt {
     spdlog::format_string_t<Args...> fmt;
     const char* file;
+    const char* func;
 
     template<typename S>
         requires (!std::is_arithmetic_v<std::remove_cvref_t<S>>)
-    consteval log_fmt(const S& s, const char* f = __builtin_FILE())
-        : fmt(s), file(f) {}
+    consteval log_fmt(const S& s, const char* f = __builtin_FILE(),
+                      const char* fn = __builtin_FUNCTION())
+        : fmt(s), file(f), func(fn) {}
 };
 
 // Formatted logging (fmt style) with full category filtering.
 // log_fmt captures the caller's filename in its consteval constructor,
 // so category blacklist AND whitelist work for all fmt-style log calls.
-// Fast path: level check (1 atomic load, ~3 cycles) rejects early before
-// file_to_categories() hash computation (~100 cycles) runs.
+// Fast path: should_log_loc() = level + O(1) cached file+func filter (~12 cycles).
 template<typename... Args>
 inline void info(log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
-    if (!(filter::LVL_INF & filter::g_level_mask.load(std::memory_order_relaxed))) return;
-    if (!filter::should_log(filter::LVL_INF, filter::file_to_categories(lf.file))) return;
+    if (!filter::should_log_loc(filter::LVL_INF, lf.file, lf.func)) return;
     if (LogSystem::logger()) LogSystem::logger()->info(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void warn(log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
-    if (!(filter::LVL_WRN & filter::g_level_mask.load(std::memory_order_relaxed))) return;
-    if (!filter::should_log(filter::LVL_WRN, filter::file_to_categories(lf.file))) return;
+    if (!filter::should_log_loc(filter::LVL_WRN, lf.file, lf.func)) return;
     if (LogSystem::logger()) LogSystem::logger()->warn(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void error(log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
-    if (!(filter::LVL_ERR & filter::g_level_mask.load(std::memory_order_relaxed))) return;
-    if (!filter::should_log(filter::LVL_ERR, filter::file_to_categories(lf.file))) return;
+    if (!filter::should_log_loc(filter::LVL_ERR, lf.file, lf.func)) return;
     if (LogSystem::logger()) LogSystem::logger()->error(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void debug(log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
-    if (!(filter::LVL_DBG & filter::g_level_mask.load(std::memory_order_relaxed))) return;
-    if (!filter::should_log(filter::LVL_DBG, filter::file_to_categories(lf.file))) return;
+    if (!filter::should_log_loc(filter::LVL_DBG, lf.file, lf.func)) return;
     if (LogSystem::logger()) LogSystem::logger()->debug(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void trace(log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
-    if (!(filter::LVL_TRC & filter::g_level_mask.load(std::memory_order_relaxed))) return;
-    if (!filter::should_log(filter::LVL_TRC, filter::file_to_categories(lf.file))) return;
+    if (!filter::should_log_loc(filter::LVL_TRC, lf.file, lf.func)) return;
     if (LogSystem::logger()) LogSystem::logger()->trace(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void critical(log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
-    if (!(filter::LVL_CRT & filter::g_level_mask.load(std::memory_order_relaxed))) return;
-    if (!filter::should_log(filter::LVL_CRT, filter::file_to_categories(lf.file))) return;
+    if (!filter::should_log_loc(filter::LVL_CRT, lf.file, lf.func)) return;
     if (LogSystem::logger()) LogSystem::logger()->critical(lf.fmt, std::forward<Args>(args)...);
 }
 
@@ -301,32 +296,28 @@ inline void client_debug(uint64_t client_bit, const std::string& msg,
 }
 
 // Filtered client logging with fmt-style formatting
-// Full filtering: level (early-out) + category (via log_fmt) + client filter
+// Full filtering: level + O(1) cached category + client filter
 template<typename... Args>
 inline void client_info(uint64_t client_bit, log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
-    if (!(filter::LVL_INF & filter::g_level_mask.load(std::memory_order_relaxed))) return;
-    if (!filter::should_log_client(filter::LVL_INF, filter::file_to_categories(lf.file), client_bit)) return;
+    if (!filter::should_log_client_loc(filter::LVL_INF, lf.file, lf.func, client_bit)) return;
     if (LogSystem::client_logger()) LogSystem::client_logger()->info(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void client_warn(uint64_t client_bit, log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
-    if (!(filter::LVL_WRN & filter::g_level_mask.load(std::memory_order_relaxed))) return;
-    if (!filter::should_log_client(filter::LVL_WRN, filter::file_to_categories(lf.file), client_bit)) return;
+    if (!filter::should_log_client_loc(filter::LVL_WRN, lf.file, lf.func, client_bit)) return;
     if (LogSystem::client_logger()) LogSystem::client_logger()->warn(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void client_error(uint64_t client_bit, log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
-    if (!(filter::LVL_ERR & filter::g_level_mask.load(std::memory_order_relaxed))) return;
-    if (!filter::should_log_client(filter::LVL_ERR, filter::file_to_categories(lf.file), client_bit)) return;
+    if (!filter::should_log_client_loc(filter::LVL_ERR, lf.file, lf.func, client_bit)) return;
     if (LogSystem::client_logger()) LogSystem::client_logger()->error(lf.fmt, std::forward<Args>(args)...);
 }
 
 template<typename... Args>
 inline void client_debug(uint64_t client_bit, log_fmt<std::type_identity_t<Args>...> lf, Args&&... args) {
-    if (!(filter::LVL_DBG & filter::g_level_mask.load(std::memory_order_relaxed))) return;
-    if (!filter::should_log_client(filter::LVL_DBG, filter::file_to_categories(lf.file), client_bit)) return;
+    if (!filter::should_log_client_loc(filter::LVL_DBG, lf.file, lf.func, client_bit)) return;
     if (LogSystem::client_logger()) LogSystem::client_logger()->debug(lf.fmt, std::forward<Args>(args)...);
 }
 

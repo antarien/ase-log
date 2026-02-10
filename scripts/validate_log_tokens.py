@@ -1,0 +1,443 @@
+#!/usr/bin/env python3
+"""
+Validate Log Tokens — Diagnostic Script
+========================================
+Standalone inspection of all JSON token sources for the log filter system.
+
+Usage:
+    python validate_log_tokens.py -?            # Help
+    python validate_log_tokens.py -a            # All JSON sources
+    python validate_log_tokens.py -a -q         # Summary only
+    python validate_log_tokens.py -j taxonomy   # Only taxonomy JSONs
+    python validate_log_tokens.py -j hub        # Only Hub JSONs
+    python validate_log_tokens.py -j modules    # Only module prefix scan
+    python validate_log_tokens.py --no-color    # No colors (pipe-compatible)
+    python validate_log_tokens.py -a --overlap  # Show token overlaps
+"""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Dict, Set, Tuple
+
+# ---------------------------------------------------------------------------
+# Path setup — reuse gen_log_cat.py token logic (DRY)
+# ---------------------------------------------------------------------------
+
+SCRIPT_DIR = Path(__file__).parent.resolve()
+ASE_LOG_DIR = SCRIPT_DIR.parent
+PROJECT_ROOT = ASE_LOG_DIR.parent.parent.parent
+ASE_VALIDATOR_ROOT = PROJECT_ROOT / "core" / "core" / "ase-validator"
+
+sys.path.insert(0, str(ASE_VALIDATOR_ROOT))
+
+try:
+    from ecs_validator.colors import C
+except ImportError:
+    class C:  # type: ignore[no-redef]
+        RESET = BOLD = DIM = RED = GREEN = YELLOW = CYAN = PURPLE = ""
+        ORANGE = TEXT = MUTED = GRAY = PINK = ""
+        PANEL_CYAN = PANEL_GREEN = PANEL_ORANGE = ""
+        BLUE = MAGENTA = WHITE = ""
+
+# Import token loading from gen_log_cat.py (DRY — no duplication)
+sys.path.insert(0, str(SCRIPT_DIR))
+from gen_log_cat import (
+    load_all_abbreviations,
+    extract_abbrevs_recursive,
+    _scan_module_prefixes,
+    fnv1a_hash,
+)
+
+# ---------------------------------------------------------------------------
+# Symbols + Colors
+# ---------------------------------------------------------------------------
+
+CHECK = "\u2713"  # check mark
+CROSS = "\u2717"  # cross mark
+SKIP = "\u25cb"   # circle
+
+SECTION_COLORS = {
+    "Taxonomy": 39,
+    "Hub Constants": 34,
+    "Hub Metrics": 110,
+    "Hub Tags": 141,
+    "Module Prefixes": 214,
+    "Overlaps": 97,
+    "Output": 71,
+    "Summary": 179,
+}
+
+
+_no_color = False
+
+def _c256(code: int) -> str:
+    if _no_color:
+        return ""
+    return f"\033[38;5;{code}m"
+
+
+def _section_header(title: str) -> str:
+    """Print section header, return pipe prefix for subsequent lines."""
+    cc = SECTION_COLORS.get(title.split(" (")[0], 242)
+    trail = "\u2500" * max(10, 80 - 4 - len(title) - 2)
+    print()
+    print(f"  {_c256(cc)}\u250c\u2500 {C.BOLD}{title}{C.RESET} {_c256(cc)}{trail}{C.RESET}")
+    print()
+    return f"  {_c256(cc)}\u2502{C.RESET}"
+
+
+def _section_line(pipe: str, label: str, value: str,
+                  symbol: str = CHECK, label_w: int = 20) -> str:
+    """Format a section line: │ ✓  label          value"""
+    sym = f"{C.GREEN}{symbol}{C.RESET}" if symbol == CHECK else f"{C.MUTED}{symbol}{C.RESET}"
+    return f"{pipe} {sym}  {C.TEXT}{label:{label_w}}{C.RESET} {value}"
+
+
+# ---------------------------------------------------------------------------
+# Hub JSON Parsing
+# ---------------------------------------------------------------------------
+
+def load_hub_value_parts(hub_data_dir: Path, filename: str) -> Tuple[Set[str], int]:
+    """Load a hub JSON file, split IDs at '_', return (unique_parts, total_ids)."""
+    path = hub_data_dir / filename
+    if not path.exists():
+        return set(), 0
+
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    ids = [v['id'] for v in data.get('global_values', [])]
+    parts: Set[str] = set()
+    for vid in ids:
+        for part in vid.split('_'):
+            if len(part) >= 2:
+                parts.add(part.upper())
+
+    return parts, len(ids)
+
+
+def load_taxonomy_tokens(taxonomy_dir: Path) -> Tuple[Set[str], int, Dict[str, str]]:
+    """Load all taxonomy abbreviations, return (tokens, file_count, noun_word_to_abbrev)."""
+    abbrevs: Set[str] = set()
+    noun_word_to_abbrev: Dict[str, str] = {}
+    file_count = 0
+
+    index_file = taxonomy_dir / "_index.json"
+    if index_file.exists():
+        with open(index_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            for cat in data.get('categories', []):
+                abbrevs.add(cat['abbrev'].upper())
+        file_count += 1
+
+    for f in sorted(taxonomy_dir.glob("*.json")):
+        if f.name.startswith('_'):
+            continue
+        try:
+            with open(f, 'r', encoding='utf-8') as fp:
+                data = json.load(fp)
+                extract_abbrevs_recursive(data, abbrevs, noun_word_to_abbrev)
+            file_count += 1
+        except Exception:
+            pass
+
+    return abbrevs, file_count, noun_word_to_abbrev
+
+
+# ---------------------------------------------------------------------------
+# Main Analysis
+# ---------------------------------------------------------------------------
+
+def run_analysis(args: argparse.Namespace) -> int:
+    global _no_color
+    if args.no_color:
+        _no_color = True
+        C.RESET = C.BOLD = C.DIM = ""
+        C.RED = C.ORANGE = C.YELLOW = C.GREEN = C.CYAN = C.PURPLE = ""
+        C.TEXT = C.MUTED = C.GRAY = ""
+
+    taxonomy_dir = PROJECT_ROOT / "core" / "core" / "ase-validator" / "ecs_validator" / "data" / "taxonomy"
+    hub_data_dir = PROJECT_ROOT / "modules" / "ase-hub" / "data"
+
+    if not taxonomy_dir.exists():
+        print(f"Error: Taxonomy directory not found: {taxonomy_dir}", file=sys.stderr)
+        return 2
+    if not hub_data_dir.exists():
+        print(f"Error: Hub data directory not found: {hub_data_dir}", file=sys.stderr)
+        return 2
+
+    show_all = args.all or not args.json_source
+    show_taxonomy = show_all or args.json_source == "taxonomy"
+    show_hub = show_all or args.json_source == "hub"
+    show_modules = show_all or args.json_source == "modules"
+    show_overlap = args.overlap
+    quiet = args.quiet
+
+    # Collect all token sets
+    taxonomy_tokens: Set[str] = set()
+    taxonomy_files = 0
+    hub_const_parts: Set[str] = set()
+    hub_const_ids = 0
+    hub_metric_parts: Set[str] = set()
+    hub_metric_ids = 0
+    hub_tag_parts: Set[str] = set()
+    hub_tag_ids = 0
+    module_prefixes: Set[str] = set()
+    noun_word_to_abbrev: Dict[str, str] = {}
+
+    # Load taxonomy (also needed for module prefix noun-alias resolution)
+    if show_taxonomy or show_modules or show_all:
+        taxonomy_tokens, taxonomy_files, noun_word_to_abbrev = load_taxonomy_tokens(taxonomy_dir)
+
+    # Load hub JSONs
+    if show_hub or show_all:
+        hub_const_parts, hub_const_ids = load_hub_value_parts(hub_data_dir, "hub_constants.json")
+        hub_metric_parts, hub_metric_ids = load_hub_value_parts(hub_data_dir, "hub_metrics.json")
+        hub_tag_parts, hub_tag_ids = load_hub_value_parts(hub_data_dir, "hub_tags.json")
+
+    # Load module prefixes
+    if show_modules or show_all:
+        module_prefix_list = _scan_module_prefixes(PROJECT_ROOT)
+        module_prefixes = {p.upper() for p in module_prefix_list}
+
+    # Compute unique tokens from hub (excluding those already in taxonomy)
+    hub_const_new = hub_const_parts - taxonomy_tokens
+    hub_metric_new = hub_metric_parts - taxonomy_tokens - hub_const_parts
+    hub_tag_new = hub_tag_parts - taxonomy_tokens - hub_const_parts - hub_metric_parts
+
+    # All unique tokens
+    all_tokens = taxonomy_tokens | hub_const_parts | hub_metric_parts | hub_tag_parts | module_prefixes
+    total_unique = len(all_tokens)
+
+    # Get existing abbrev_bits for actual bit count
+    abbrev_bits, name_aliases = load_all_abbreviations(taxonomy_dir, PROJECT_ROOT)
+    actual_bits = len(abbrev_bits)
+
+    capacity = 16384  # Fixed capacity from header (256 chunks × 64 bits)
+
+    if not quiet:
+        # === Taxonomy Section ===
+        if show_taxonomy:
+            pipe = _section_header(f"Taxonomy ({taxonomy_files} files)")
+            sorted_tax = sorted(taxonomy_tokens)
+            display_count = min(5, len(sorted_tax))
+            for tok in sorted_tax[:display_count]:
+                print(_section_line(pipe, "category", f"{C.CYAN}{tok}{C.RESET}"))
+            if len(sorted_tax) > display_count:
+                print()
+                print(_section_line(pipe, "...", f"{C.MUTED}({len(sorted_tax) - display_count} more){C.RESET}"))
+                print()
+            print(_section_line(pipe, "total", f"{C.CYAN}{len(taxonomy_tokens):,}{C.RESET}"))
+
+        # === Hub Constants Section ===
+        if show_hub:
+            pipe = _section_header(f"Hub Constants ({hub_const_ids} IDs)")
+            part_counts: Dict[str, int] = {}
+            with open(hub_data_dir / "hub_constants.json", 'r') as f:
+                data = json.load(f)
+            for v in data.get('global_values', []):
+                for part in v['id'].split('_'):
+                    if len(part) >= 2:
+                        part_counts[part.upper()] = part_counts.get(part.upper(), 0) + 1
+            top_parts = sorted(part_counts.items(), key=lambda x: -x[1])[:5]
+            for part, count in top_parts:
+                print(_section_line(pipe, "part", f"{C.CYAN}{part:<24}{C.RESET} {C.YELLOW}{count:>6}{C.RESET}"))
+            if len(part_counts) > 5:
+                print()
+                print(_section_line(pipe, "...", f"{C.MUTED}({len(part_counts) - 5} more){C.RESET}"))
+                print()
+            print(_section_line(pipe, "unique-parts", f"{C.CYAN}{len(hub_const_parts):,}{C.RESET}"))
+            print(_section_line(pipe, "new-tokens", f"{C.GREEN}{len(hub_const_new):,}{C.RESET}"))
+
+        if show_hub:
+            pipe = _section_header(f"Hub Metrics ({hub_metric_ids} IDs)")
+            part_counts = {}
+            with open(hub_data_dir / "hub_metrics.json", 'r') as f:
+                data = json.load(f)
+            for v in data.get('global_values', []):
+                for part in v['id'].split('_'):
+                    if len(part) >= 2:
+                        part_counts[part.upper()] = part_counts.get(part.upper(), 0) + 1
+            top_parts = sorted(part_counts.items(), key=lambda x: -x[1])[:5]
+            for part, count in top_parts:
+                print(_section_line(pipe, "part", f"{C.CYAN}{part:<24}{C.RESET} {C.YELLOW}{count:>6}{C.RESET}"))
+            if len(part_counts) > 5:
+                print()
+                print(_section_line(pipe, "...", f"{C.MUTED}({len(part_counts) - 5} more){C.RESET}"))
+                print()
+            print(_section_line(pipe, "unique-parts", f"{C.CYAN}{len(hub_metric_parts):,}{C.RESET}"))
+            print(_section_line(pipe, "new-tokens", f"{C.GREEN}{len(hub_metric_new):,}{C.RESET}"))
+
+        if show_hub:
+            pipe = _section_header(f"Hub Tags ({hub_tag_ids} IDs)")
+            part_counts = {}
+            with open(hub_data_dir / "hub_tags.json", 'r') as f:
+                data = json.load(f)
+            for v in data.get('global_values', []):
+                for part in v['id'].split('_'):
+                    if len(part) >= 2:
+                        part_counts[part.upper()] = part_counts.get(part.upper(), 0) + 1
+            top_parts = sorted(part_counts.items(), key=lambda x: -x[1])[:5]
+            for part, count in top_parts:
+                print(_section_line(pipe, "part", f"{C.CYAN}{part:<24}{C.RESET} {C.YELLOW}{count:>6}{C.RESET}"))
+            if len(part_counts) > 5:
+                print()
+                print(_section_line(pipe, "...", f"{C.MUTED}({len(part_counts) - 5} more){C.RESET}"))
+                print()
+            print(_section_line(pipe, "unique-parts", f"{C.CYAN}{len(hub_tag_parts):,}{C.RESET}"))
+            print(_section_line(pipe, "new-tokens", f"{C.GREEN}{len(hub_tag_new):,}{C.RESET}"))
+
+        # === Module Prefixes Section ===
+        if show_modules:
+            index_name_to_abbrev: Dict[str, str] = {}
+            index_file = taxonomy_dir / "_index.json"
+            if index_file.exists():
+                with open(index_file, 'r') as f:
+                    idx_data = json.load(f)
+                    for cat in idx_data.get('categories', []):
+                        name = cat.get('name', '').upper()
+                        abbrev = cat['abbrev'].upper()
+                        if name and name != abbrev:
+                            index_name_to_abbrev[name] = abbrev
+
+            alias_count = 0
+            noun_alias_count = 0
+            standalone_count = 0
+            taxonomy_match_count = 0
+            pipe = _section_header(f"Module Prefixes ({len(module_prefixes)} dirs)")
+            aliases = []
+            for prefix in sorted(module_prefixes):
+                if prefix in index_name_to_abbrev:
+                    aliases.append((prefix, index_name_to_abbrev[prefix]))
+                    alias_count += 1
+                elif prefix in taxonomy_tokens:
+                    taxonomy_match_count += 1
+                elif prefix in noun_word_to_abbrev:
+                    aliases.append((prefix, noun_word_to_abbrev[prefix]))
+                    noun_alias_count += 1
+                else:
+                    standalone_count += 1
+            for name, abbrev in aliases[:5]:
+                print(_section_line(pipe, "alias", f"{C.MUTED}{name.lower()}{C.RESET} \u2192 {C.CYAN}{abbrev}{C.RESET}"))
+            if len(aliases) > 5:
+                print()
+                print(_section_line(pipe, "...", f"{C.MUTED}({len(aliases) - 5} more){C.RESET}"))
+                print()
+            print(_section_line(pipe, "index-alias", f"{C.CYAN}{alias_count}{C.RESET}"))
+            print(_section_line(pipe, "noun-alias", f"{C.GREEN}{noun_alias_count}{C.RESET}"))
+            print(_section_line(pipe, "standalone", f"{C.YELLOW}{standalone_count}{C.RESET}"))
+            print(_section_line(pipe, "taxonomy-match", f"{C.CYAN}{taxonomy_match_count}{C.RESET}"))
+
+        # === Overlaps Section ===
+        if show_overlap:
+            pipe = _section_header("Overlaps")
+            sources: Dict[str, list] = {}
+            for tok in all_tokens:
+                srcs = []
+                if tok in taxonomy_tokens:
+                    srcs.append("taxonomy")
+                if tok in hub_const_parts:
+                    srcs.append("hub_constants")
+                if tok in hub_metric_parts:
+                    srcs.append("hub_metrics")
+                if tok in hub_tag_parts:
+                    srcs.append("hub_tags")
+                if tok in module_prefixes:
+                    srcs.append("modules")
+                if len(srcs) > 1:
+                    sources[tok] = srcs
+
+            for tok in sorted(sources.keys())[:20]:
+                print(_section_line(pipe, "shared", f"{C.CYAN}{tok}{C.RESET} \u2014 {C.MUTED}{' + '.join(sources[tok])}{C.RESET}", SKIP))
+            if len(sources) > 20:
+                print(_section_line(pipe, "...", f"{C.MUTED}({len(sources) - 20} more){C.RESET}"))
+            print(_section_line(pipe, "shared-total", f"{C.CYAN}{len(sources):,}{C.RESET}"))
+
+    # === Broken Aliases Section (always checked) ===
+    # Verify every ACTUAL alias in the generator maps to the correct bit.
+    # Uses name_aliases from load_all_abbreviations (the generator's own list).
+    broken_aliases: list = []
+
+    # Build alias→target lookup from generator's actual aliases
+    all_alias_pairs: Dict[str, str] = {}
+    for alias_name, target_abbrev in name_aliases:
+        all_alias_pairs[alias_name] = target_abbrev
+
+    for alias_name, target_abbrev in sorted(all_alias_pairs.items()):
+        # The alias_name should NOT have its own bit (it was removed from abbrevs)
+        # The target_abbrev MUST have a bit (it's the canonical abbreviation)
+        alias_bit = abbrev_bits.get(alias_name)
+        target_bit = abbrev_bits.get(target_abbrev)
+        if alias_bit is not None and target_bit is not None and alias_bit != target_bit:
+            broken_aliases.append((alias_name, target_abbrev, alias_bit, target_bit))
+
+    has_broken = len(broken_aliases) > 0
+    if not quiet or has_broken:
+        pipe = _section_header(f"Alias Integrity ({len(all_alias_pairs)} pairs)")
+        if has_broken:
+            for noun, abbr, n_bit, a_bit in broken_aliases[:20]:
+                print(_section_line(pipe, "BROKEN",
+                    f"{C.RED}{noun}(bit={n_bit}){C.RESET} != "
+                    f"{C.CYAN}{abbr}(bit={a_bit}){C.RESET} "
+                    f"\u2014 +{abbr} won't match files with \"{noun.lower()}\"",
+                    CROSS))
+            if len(broken_aliases) > 20:
+                print(_section_line(pipe, "...",
+                    f"{C.MUTED}({len(broken_aliases) - 20} more){C.RESET}"))
+            print(_section_line(pipe, "broken-total",
+                f"{C.RED}{len(broken_aliases)}{C.RESET}", CROSS))
+        else:
+            print(_section_line(pipe, "status",
+                f"{C.GREEN}All noun aliases resolve to correct bits{C.RESET}"))
+
+    # === Summary Section (always shown) ===
+    pipe = _section_header(f"Summary ({total_unique:,})")
+    print(_section_line(pipe, "taxonomy", f"{C.CYAN}{len(taxonomy_tokens):,}{C.RESET}"))
+    print(_section_line(pipe, "hub-constants", f"{C.CYAN}{len(hub_const_parts):,}{C.RESET}"))
+    print(_section_line(pipe, "hub-metrics", f"{C.CYAN}{len(hub_metric_parts):,}{C.RESET}"))
+    print(_section_line(pipe, "hub-tags", f"{C.CYAN}{len(hub_tag_parts):,}{C.RESET}"))
+    print(_section_line(pipe, "module-prefix", f"{C.CYAN}{len(module_prefixes):,}{C.RESET}"))
+    print(_section_line(pipe, "unique-bits", f"{C.YELLOW}{actual_bits:,}{C.RESET}"))
+    if has_broken:
+        print(_section_line(pipe, "broken-aliases",
+            f"{C.RED}{len(broken_aliases)} BROKEN{C.RESET}", CROSS))
+
+    pct = (actual_bits / capacity) * 100
+    cap_str = f"{C.YELLOW}{actual_bits:,}{C.RESET} / {C.MUTED}{capacity:,}{C.RESET} ({C.CYAN}{pct:.0f}%{C.RESET})"
+    if pct > 100:
+        print(_section_line(pipe, "capacity", f"{cap_str} {C.RED}<- OVER!{C.RESET}", CROSS))
+    elif pct > 90:
+        print(_section_line(pipe, "capacity", f"{cap_str} {C.YELLOW}<- WARN >90%{C.RESET}"))
+    else:
+        print(_section_line(pipe, "capacity", cap_str))
+    print()
+
+    # Exit code
+    if has_broken:
+        return 1
+    if actual_bits > capacity:
+        return 1
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Validate log filter token sources (taxonomy + Hub JSONs + modules)")
+    parser.add_argument("-a", "--all", action="store_true",
+                        help="Analyze all JSON sources")
+    parser.add_argument("-j", "--json-source", choices=["taxonomy", "hub", "modules"],
+                        help="Analyze only specific JSON source")
+    parser.add_argument("-q", "--quiet", action="store_true",
+                        help="Only show Summary section")
+    parser.add_argument("--no-color", action="store_true",
+                        help="Disable colors (pipe-compatible)")
+    parser.add_argument("--overlap", action="store_true",
+                        help="Show token overlaps between sources")
+    args = parser.parse_args()
+    sys.exit(run_analysis(args))
+
+
+if __name__ == '__main__':
+    main()
