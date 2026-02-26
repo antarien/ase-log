@@ -6,13 +6,13 @@ Standalone inspection of all JSON token sources for the log filter system.
 
 Usage:
     python validate_log_tokens.py -?            # Help
-    python validate_log_tokens.py -a            # All JSON sources
-    python validate_log_tokens.py -a -q         # Summary only
-    python validate_log_tokens.py -j taxonomy   # Only taxonomy JSONs
-    python validate_log_tokens.py -j hub        # Only Hub JSONs
-    python validate_log_tokens.py -j modules    # Only module prefix scan
+    python validate_log_tokens.py -A            # All JSON sources
+    python validate_log_tokens.py -A -q         # Summary only
+    python validate_log_tokens.py -J taxonomy   # Only taxonomy JSONs
+    python validate_log_tokens.py -J hub        # Only Hub JSONs
+    python validate_log_tokens.py -J modules    # Only module prefix scan
     python validate_log_tokens.py --no-color    # No colors (pipe-compatible)
-    python validate_log_tokens.py -a --overlap  # Show token overlaps
+    python validate_log_tokens.py -A -O         # Show token overlaps
 """
 
 import argparse
@@ -425,15 +425,15 @@ def run_analysis(args: argparse.Namespace) -> int:
 def main():
     parser = argparse.ArgumentParser(
         description="Validate log filter token sources (taxonomy + Hub JSONs + modules)")
-    parser.add_argument("-a", "--all", action="store_true",
+    parser.add_argument("-A", "--all", action="store_true",
                         help="Analyze all JSON sources")
-    parser.add_argument("-j", "--json-source", choices=["taxonomy", "hub", "modules"],
+    parser.add_argument("-J", "--json-source", choices=["taxonomy", "hub", "modules"],
                         help="Analyze only specific JSON source")
     parser.add_argument("-q", "--quiet", action="store_true",
                         help="Only show Summary section")
     parser.add_argument("--no-color", action="store_true",
                         help="Disable colors (pipe-compatible)")
-    parser.add_argument("--overlap", action="store_true",
+    parser.add_argument("-O", "--overlap", action="store_true",
                         help="Show token overlaps between sources")
     args = parser.parse_args()
     sys.exit(run_analysis(args))
