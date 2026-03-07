@@ -21,58 +21,16 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 # ---------------------------------------------------------------------------
-# Color setup (reuse ecs_validator.colors for SSOT terminal theme)
+# Console framework (SSOT terminal theme from sha-web-console)
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 ASE_LOG_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = ASE_LOG_DIR.parent.parent.parent
-ASE_VALIDATOR_ROOT = PROJECT_ROOT / "core" / "core" / "ase-validator"
 
-sys.path.insert(0, str(ASE_VALIDATOR_ROOT))
-
-try:
-    from ecs_validator.colors import C
-except ImportError:
-    class C:  # type: ignore[no-redef]
-        RESET = BOLD = DIM = RED = GREEN = YELLOW = CYAN = PURPLE = ""
-        ORANGE = TEXT = MUTED = GRAY = PINK = ""
-        PANEL_CYAN = PANEL_GREEN = PANEL_ORANGE = ""
-        BLUE = MAGENTA = WHITE = ""
-
-CHECK = "\u2713"  # check mark
-CROSS = "\u2717"  # cross mark
-SKIP = "\u25cb"   # circle
-
-SECTION_COLORS = {
-    "Taxonomy": 39,
-    "Hub Constants": 34,
-    "Hub Metrics": 110,
-    "Hub Tags": 141,
-    "Module Prefixes": 214,
-    "Output": 71,
-    "Summary": 179,
-}
-
-def _c256(code: int) -> str:
-    return f"\033[38;5;{code}m"
-
-
-def _section_header(title: str) -> str:
-    """Print section header, return pipe prefix for subsequent lines."""
-    cc = SECTION_COLORS.get(title.split(" (")[0], 242)
-    trail = "\u2500" * max(10, 80 - 4 - len(title) - 2)
-    print()
-    print(f"  {_c256(cc)}\u250c\u2500 {C.BOLD}{title}{C.RESET} {_c256(cc)}{trail}{C.RESET}")
-    print()
-    return f"  {_c256(cc)}\u2502{C.RESET}"
-
-
-def _section_line(pipe: str, label: str, value: str,
-                  symbol: str = CHECK, label_w: int = 20) -> str:
-    """Format a section line: │ ✓  label          value"""
-    sym = f"{C.GREEN}{symbol}{C.RESET}" if symbol == CHECK else f"{C.MUTED}{symbol}{C.RESET}"
-    return f"{pipe} {sym}  {C.TEXT}{label:{label_w}}{C.RESET} {value}"
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "clients" / "sha-client-web" / "sha-web-console" / "python"))
+from console import (C, section_header, section_line, section_pipe, section_detail,
+                      register_labels, tprint, c256, CHECK, CROSS, SKIP, HASH, ARROW, WARN)
 
 
 # ---------------------------------------------------------------------------
@@ -935,81 +893,89 @@ def main():
     # === Professional Output ===
 
     # Taxonomy
-    pipe = _section_header(f"Taxonomy ({taxonomy_files} files)")
+    section_header(f"Taxonomy ({taxonomy_files} files)", 39)
+    register_labels(["category", "...", "total"])
     sorted_tax = sorted(taxonomy_abbrevs)
     for tok in sorted_tax[:5]:
-        print(_section_line(pipe, "category", f"{C.CYAN}{tok}{C.RESET}"))
+        section_line(CHECK, "category", f"{C.CYAN}{tok}{C.RESET}")
     if len(sorted_tax) > 5:
-        print()
-        print(_section_line(pipe, "...", f"{C.MUTED}({len(sorted_tax) - 5} more){C.RESET}"))
-        print()
-    print(_section_line(pipe, "total", f"{C.CYAN}{len(taxonomy_abbrevs):,}{C.RESET}"))
+        section_pipe()
+        section_line(SKIP, "...", f"{C.MUTED}({len(sorted_tax) - 5} more){C.RESET}")
+        section_pipe()
+    section_line(CHECK, "total", f"{C.CYAN}{len(taxonomy_abbrevs):,}{C.RESET}")
 
     # Hub Constants
     if hub_stats:
-        pipe = _section_header(f"Hub Constants ({hub_stats['const_count']} IDs)")
+        section_header(f"Hub Constants ({hub_stats['const_count']} IDs)", 34)
+        register_labels(["unique-parts", "new-tokens"])
         const_new = hub_stats['const_parts'] - taxonomy_abbrevs
-        print(_section_line(pipe, "unique-parts", f"{C.CYAN}{len(hub_stats['const_parts']):,}{C.RESET}"))
-        print(_section_line(pipe, "new-tokens", f"{C.GREEN}{len(const_new):,}{C.RESET}"))
+        section_line(CHECK, "unique-parts", f"{C.CYAN}{len(hub_stats['const_parts']):,}{C.RESET}")
+        section_line(CHECK, "new-tokens", f"{C.GREEN}{len(const_new):,}{C.RESET}")
 
         # Hub Metrics
-        pipe = _section_header(f"Hub Metrics ({hub_stats['metric_count']} IDs)")
+        section_header(f"Hub Metrics ({hub_stats['metric_count']} IDs)", 110)
+        register_labels(["unique-parts", "new-tokens"])
         metric_new = hub_stats['metric_parts'] - taxonomy_abbrevs - hub_stats['const_parts']
-        print(_section_line(pipe, "unique-parts", f"{C.CYAN}{len(hub_stats['metric_parts']):,}{C.RESET}"))
-        print(_section_line(pipe, "new-tokens", f"{C.GREEN}{len(metric_new):,}{C.RESET}"))
+        section_line(CHECK, "unique-parts", f"{C.CYAN}{len(hub_stats['metric_parts']):,}{C.RESET}")
+        section_line(CHECK, "new-tokens", f"{C.GREEN}{len(metric_new):,}{C.RESET}")
 
         # Hub Tags
-        pipe = _section_header(f"Hub Tags ({hub_stats['tag_count']} IDs)")
+        section_header(f"Hub Tags ({hub_stats['tag_count']} IDs)", 141)
+        register_labels(["unique-parts", "new-tokens"])
         tag_new = (hub_stats['tag_parts'] - taxonomy_abbrevs
                    - hub_stats['const_parts'] - hub_stats['metric_parts'])
-        print(_section_line(pipe, "unique-parts", f"{C.CYAN}{len(hub_stats['tag_parts']):,}{C.RESET}"))
-        print(_section_line(pipe, "new-tokens", f"{C.GREEN}{len(tag_new):,}{C.RESET}"))
+        section_line(CHECK, "unique-parts", f"{C.CYAN}{len(hub_stats['tag_parts']):,}{C.RESET}")
+        section_line(CHECK, "new-tokens", f"{C.GREEN}{len(tag_new):,}{C.RESET}")
 
     # Module Prefixes
-    pipe = _section_header(f"Module Prefixes ({len(module_prefixes)} dirs)")
+    section_header(f"Module Prefixes ({len(module_prefixes)} dirs)", 214)
+    register_labels(["alias", "...", "alias-total"])
     for name, abbrev in sorted(name_aliases)[:5]:
-        print(_section_line(pipe, "alias", f"{C.MUTED}{name.lower()}{C.RESET} \u2192 {C.CYAN}{abbrev}{C.RESET}"))
+        section_line(CHECK, "alias", f"{C.MUTED}{name.lower()}{C.RESET} \u2192 {C.CYAN}{abbrev}{C.RESET}")
     if len(name_aliases) > 5:
-        print()
-        print(_section_line(pipe, "...", f"{C.MUTED}({len(name_aliases) - 5} more){C.RESET}"))
-        print()
-    print(_section_line(pipe, "alias-total", f"{C.CYAN}{num_aliases}{C.RESET}"))
+        section_pipe()
+        section_line(SKIP, "...", f"{C.MUTED}({len(name_aliases) - 5} more){C.RESET}")
+        section_pipe()
+    section_line(CHECK, "alias-total", f"{C.CYAN}{num_aliases}{C.RESET}")
 
     # Output
-    pipe = _section_header("Output")
+    section_header("Output", 71)
+    register_labels([header_path.name, impl_path.name])
     if header_changed:
-        print(_section_line(pipe, header_path.name, f"{C.YELLOW}CHANGED (triggers rebuild){C.RESET}", CROSS))
+        section_line(CROSS, header_path.name, f"{C.YELLOW}CHANGED (triggers rebuild){C.RESET}")
     else:
-        print(_section_line(pipe, header_path.name, f"{C.GREEN}UNCHANGED (no rebuild){C.RESET}"))
+        section_line(CHECK, header_path.name, f"{C.GREEN}UNCHANGED (no rebuild){C.RESET}")
     if impl_changed:
-        print(_section_line(pipe, impl_path.name, f"{C.GREEN}CHANGED (1 file recompile){C.RESET}"))
+        section_line(CHECK, impl_path.name, f"{C.GREEN}CHANGED (1 file recompile){C.RESET}")
     else:
-        print(_section_line(pipe, impl_path.name, f"{C.GREEN}UNCHANGED{C.RESET}"))
+        section_line(CHECK, impl_path.name, f"{C.GREEN}UNCHANGED{C.RESET}")
 
     # Summary
     capacity = 16384
     pct = (num_categories / capacity) * 100
-    pipe = _section_header(f"Summary ({num_categories:,})")
-    print(_section_line(pipe, "taxonomy", f"{C.CYAN}{len(taxonomy_abbrevs):,}{C.RESET}"))
+    section_header(f"Summary ({num_categories:,})", 179)
+    register_labels(["taxonomy", "hub-constants", "hub-metrics", "hub-tags",
+                     "module-prefix", "module-alias", "unique-bits", "capacity", "header"])
+    section_line(CHECK, "taxonomy", f"{C.CYAN}{len(taxonomy_abbrevs):,}{C.RESET}")
     if hub_stats:
-        print(_section_line(pipe, "hub-constants", f"{C.CYAN}{len(hub_stats['const_parts']):,}{C.RESET}"))
-        print(_section_line(pipe, "hub-metrics", f"{C.CYAN}{len(hub_stats['metric_parts']):,}{C.RESET}"))
-        print(_section_line(pipe, "hub-tags", f"{C.CYAN}{len(hub_stats['tag_parts']):,}{C.RESET}"))
-    print(_section_line(pipe, "module-prefix", f"{C.CYAN}{len(module_prefixes)}{C.RESET}"))
-    print(_section_line(pipe, "module-alias", f"{C.CYAN}{num_aliases}{C.RESET}"))
-    print(_section_line(pipe, "unique-bits", f"{C.YELLOW}{num_categories:,}{C.RESET}"))
+        section_line(CHECK, "hub-constants", f"{C.CYAN}{len(hub_stats['const_parts']):,}{C.RESET}")
+        section_line(CHECK, "hub-metrics", f"{C.CYAN}{len(hub_stats['metric_parts']):,}{C.RESET}")
+        section_line(CHECK, "hub-tags", f"{C.CYAN}{len(hub_stats['tag_parts']):,}{C.RESET}")
+    section_line(CHECK, "module-prefix", f"{C.CYAN}{len(module_prefixes)}{C.RESET}")
+    section_line(CHECK, "module-alias", f"{C.CYAN}{num_aliases}{C.RESET}")
+    section_line(CHECK, "unique-bits", f"{C.YELLOW}{num_categories:,}{C.RESET}")
 
     cap_str = f"{C.YELLOW}{num_categories:,}{C.RESET} / {C.MUTED}{capacity:,}{C.RESET} ({C.CYAN}{pct:.0f}%{C.RESET})"
     if pct > 100:
-        print(_section_line(pipe, "capacity", f"{cap_str} {C.RED}<- OVER!{C.RESET}", CROSS))
+        section_line(CROSS, "capacity", f"{cap_str} {C.RED}<- OVER!{C.RESET}")
     elif pct > 90:
-        print(_section_line(pipe, "capacity", f"{cap_str} {C.YELLOW}<- WARN >90%{C.RESET}"))
+        section_line(WARN, "capacity", f"{cap_str} {C.YELLOW}<- WARN >90%{C.RESET}")
     else:
-        print(_section_line(pipe, "capacity", cap_str))
+        section_line(CHECK, "capacity", cap_str)
 
     if not header_changed:
-        print(_section_line(pipe, "header", f"{C.GREEN}UNCHANGED{C.RESET} \u2192 {C.MUTED}no cascade{C.RESET}"))
-    print()
+        section_line(CHECK, "header", f"{C.GREEN}UNCHANGED{C.RESET} \u2192 {C.MUTED}no cascade{C.RESET}")
+    section_pipe()
 
 
 if __name__ == '__main__':

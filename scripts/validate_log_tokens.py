@@ -28,18 +28,11 @@ from typing import Dict, Set, Tuple
 SCRIPT_DIR = Path(__file__).parent.resolve()
 ASE_LOG_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = ASE_LOG_DIR.parent.parent.parent
-ASE_VALIDATOR_ROOT = PROJECT_ROOT / "core" / "core" / "ase-validator"
 
-sys.path.insert(0, str(ASE_VALIDATOR_ROOT))
-
-try:
-    from ecs_validator.colors import C
-except ImportError:
-    class C:  # type: ignore[no-redef]
-        RESET = BOLD = DIM = RED = GREEN = YELLOW = CYAN = PURPLE = ""
-        ORANGE = TEXT = MUTED = GRAY = PINK = ""
-        PANEL_CYAN = PANEL_GREEN = PANEL_ORANGE = ""
-        BLUE = MAGENTA = WHITE = ""
+# Console framework (SSOT)
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "clients" / "sha-client-web" / "sha-web-console" / "python"))
+from console import (C, section_header, section_line, section_pipe, section_detail,
+                      register_labels, tprint, c256, set_no_color, CHECK, CROSS, SKIP, HASH, ARROW, WARN)
 
 # Import token loading from gen_log_cat.py (DRY — no duplication)
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -49,50 +42,6 @@ from gen_log_cat import (
     _scan_module_prefixes,
     fnv1a_hash,
 )
-
-# ---------------------------------------------------------------------------
-# Symbols + Colors
-# ---------------------------------------------------------------------------
-
-CHECK = "\u2713"  # check mark
-CROSS = "\u2717"  # cross mark
-SKIP = "\u25cb"   # circle
-
-SECTION_COLORS = {
-    "Taxonomy": 39,
-    "Hub Constants": 34,
-    "Hub Metrics": 110,
-    "Hub Tags": 141,
-    "Module Prefixes": 214,
-    "Overlaps": 97,
-    "Output": 71,
-    "Summary": 179,
-}
-
-
-_no_color = False
-
-def _c256(code: int) -> str:
-    if _no_color:
-        return ""
-    return f"\033[38;5;{code}m"
-
-
-def _section_header(title: str) -> str:
-    """Print section header, return pipe prefix for subsequent lines."""
-    cc = SECTION_COLORS.get(title.split(" (")[0], 242)
-    trail = "\u2500" * max(10, 80 - 4 - len(title) - 2)
-    print()
-    print(f"  {_c256(cc)}\u250c\u2500 {C.BOLD}{title}{C.RESET} {_c256(cc)}{trail}{C.RESET}")
-    print()
-    return f"  {_c256(cc)}\u2502{C.RESET}"
-
-
-def _section_line(pipe: str, label: str, value: str,
-                  symbol: str = CHECK, label_w: int = 20) -> str:
-    """Format a section line: │ ✓  label          value"""
-    sym = f"{C.GREEN}{symbol}{C.RESET}" if symbol == CHECK else f"{C.MUTED}{symbol}{C.RESET}"
-    return f"{pipe} {sym}  {C.TEXT}{label:{label_w}}{C.RESET} {value}"
 
 
 # ---------------------------------------------------------------------------
@@ -151,12 +100,8 @@ def load_taxonomy_tokens(taxonomy_dir: Path) -> Tuple[Set[str], int, Dict[str, s
 # ---------------------------------------------------------------------------
 
 def run_analysis(args: argparse.Namespace) -> int:
-    global _no_color
     if args.no_color:
-        _no_color = True
-        C.RESET = C.BOLD = C.DIM = ""
-        C.RED = C.ORANGE = C.YELLOW = C.GREEN = C.CYAN = C.PURPLE = ""
-        C.TEXT = C.MUTED = C.GRAY = ""
+        set_no_color(True)
 
     taxonomy_dir = PROJECT_ROOT / "core" / "core" / "ase-validator" / "ecs_validator" / "data" / "taxonomy"
     hub_data_dir = PROJECT_ROOT / "modules" / "ase-hub" / "data"
@@ -220,20 +165,22 @@ def run_analysis(args: argparse.Namespace) -> int:
     if not quiet:
         # === Taxonomy Section ===
         if show_taxonomy:
-            pipe = _section_header(f"Taxonomy ({taxonomy_files} files)")
+            section_header(f"Taxonomy ({taxonomy_files} files)", 39)
+            register_labels(["category", "...", "total"])
             sorted_tax = sorted(taxonomy_tokens)
             display_count = min(5, len(sorted_tax))
             for tok in sorted_tax[:display_count]:
-                print(_section_line(pipe, "category", f"{C.CYAN}{tok}{C.RESET}"))
+                section_line(CHECK, "category", f"{C.CYAN}{tok}{C.RESET}")
             if len(sorted_tax) > display_count:
-                print()
-                print(_section_line(pipe, "...", f"{C.MUTED}({len(sorted_tax) - display_count} more){C.RESET}"))
-                print()
-            print(_section_line(pipe, "total", f"{C.CYAN}{len(taxonomy_tokens):,}{C.RESET}"))
+                section_pipe()
+                section_line(SKIP, "...", f"{C.MUTED}({len(sorted_tax) - display_count} more){C.RESET}")
+                section_pipe()
+            section_line(CHECK, "total", f"{C.CYAN}{len(taxonomy_tokens):,}{C.RESET}")
 
         # === Hub Constants Section ===
         if show_hub:
-            pipe = _section_header(f"Hub Constants ({hub_const_ids} IDs)")
+            section_header(f"Hub Constants ({hub_const_ids} IDs)", 34)
+            register_labels(["part", "...", "unique-parts", "new-tokens"])
             part_counts: Dict[str, int] = {}
             with open(hub_data_dir / "hub_constants.json", 'r') as f:
                 data = json.load(f)
@@ -243,16 +190,17 @@ def run_analysis(args: argparse.Namespace) -> int:
                         part_counts[part.upper()] = part_counts.get(part.upper(), 0) + 1
             top_parts = sorted(part_counts.items(), key=lambda x: -x[1])[:5]
             for part, count in top_parts:
-                print(_section_line(pipe, "part", f"{C.CYAN}{part:<24}{C.RESET} {C.YELLOW}{count:>6}{C.RESET}"))
+                section_line(CHECK, "part", f"{C.CYAN}{part:<24}{C.RESET} {C.YELLOW}{count:>6}{C.RESET}")
             if len(part_counts) > 5:
-                print()
-                print(_section_line(pipe, "...", f"{C.MUTED}({len(part_counts) - 5} more){C.RESET}"))
-                print()
-            print(_section_line(pipe, "unique-parts", f"{C.CYAN}{len(hub_const_parts):,}{C.RESET}"))
-            print(_section_line(pipe, "new-tokens", f"{C.GREEN}{len(hub_const_new):,}{C.RESET}"))
+                section_pipe()
+                section_line(SKIP, "...", f"{C.MUTED}({len(part_counts) - 5} more){C.RESET}")
+                section_pipe()
+            section_line(CHECK, "unique-parts", f"{C.CYAN}{len(hub_const_parts):,}{C.RESET}")
+            section_line(CHECK, "new-tokens", f"{C.GREEN}{len(hub_const_new):,}{C.RESET}")
 
         if show_hub:
-            pipe = _section_header(f"Hub Metrics ({hub_metric_ids} IDs)")
+            section_header(f"Hub Metrics ({hub_metric_ids} IDs)", 110)
+            register_labels(["part", "...", "unique-parts", "new-tokens"])
             part_counts = {}
             with open(hub_data_dir / "hub_metrics.json", 'r') as f:
                 data = json.load(f)
@@ -262,16 +210,17 @@ def run_analysis(args: argparse.Namespace) -> int:
                         part_counts[part.upper()] = part_counts.get(part.upper(), 0) + 1
             top_parts = sorted(part_counts.items(), key=lambda x: -x[1])[:5]
             for part, count in top_parts:
-                print(_section_line(pipe, "part", f"{C.CYAN}{part:<24}{C.RESET} {C.YELLOW}{count:>6}{C.RESET}"))
+                section_line(CHECK, "part", f"{C.CYAN}{part:<24}{C.RESET} {C.YELLOW}{count:>6}{C.RESET}")
             if len(part_counts) > 5:
-                print()
-                print(_section_line(pipe, "...", f"{C.MUTED}({len(part_counts) - 5} more){C.RESET}"))
-                print()
-            print(_section_line(pipe, "unique-parts", f"{C.CYAN}{len(hub_metric_parts):,}{C.RESET}"))
-            print(_section_line(pipe, "new-tokens", f"{C.GREEN}{len(hub_metric_new):,}{C.RESET}"))
+                section_pipe()
+                section_line(SKIP, "...", f"{C.MUTED}({len(part_counts) - 5} more){C.RESET}")
+                section_pipe()
+            section_line(CHECK, "unique-parts", f"{C.CYAN}{len(hub_metric_parts):,}{C.RESET}")
+            section_line(CHECK, "new-tokens", f"{C.GREEN}{len(hub_metric_new):,}{C.RESET}")
 
         if show_hub:
-            pipe = _section_header(f"Hub Tags ({hub_tag_ids} IDs)")
+            section_header(f"Hub Tags ({hub_tag_ids} IDs)", 141)
+            register_labels(["part", "...", "unique-parts", "new-tokens"])
             part_counts = {}
             with open(hub_data_dir / "hub_tags.json", 'r') as f:
                 data = json.load(f)
@@ -281,13 +230,13 @@ def run_analysis(args: argparse.Namespace) -> int:
                         part_counts[part.upper()] = part_counts.get(part.upper(), 0) + 1
             top_parts = sorted(part_counts.items(), key=lambda x: -x[1])[:5]
             for part, count in top_parts:
-                print(_section_line(pipe, "part", f"{C.CYAN}{part:<24}{C.RESET} {C.YELLOW}{count:>6}{C.RESET}"))
+                section_line(CHECK, "part", f"{C.CYAN}{part:<24}{C.RESET} {C.YELLOW}{count:>6}{C.RESET}")
             if len(part_counts) > 5:
-                print()
-                print(_section_line(pipe, "...", f"{C.MUTED}({len(part_counts) - 5} more){C.RESET}"))
-                print()
-            print(_section_line(pipe, "unique-parts", f"{C.CYAN}{len(hub_tag_parts):,}{C.RESET}"))
-            print(_section_line(pipe, "new-tokens", f"{C.GREEN}{len(hub_tag_new):,}{C.RESET}"))
+                section_pipe()
+                section_line(SKIP, "...", f"{C.MUTED}({len(part_counts) - 5} more){C.RESET}")
+                section_pipe()
+            section_line(CHECK, "unique-parts", f"{C.CYAN}{len(hub_tag_parts):,}{C.RESET}")
+            section_line(CHECK, "new-tokens", f"{C.GREEN}{len(hub_tag_new):,}{C.RESET}")
 
         # === Module Prefixes Section ===
         if show_modules:
@@ -306,7 +255,8 @@ def run_analysis(args: argparse.Namespace) -> int:
             noun_alias_count = 0
             standalone_count = 0
             taxonomy_match_count = 0
-            pipe = _section_header(f"Module Prefixes ({len(module_prefixes)} dirs)")
+            section_header(f"Module Prefixes ({len(module_prefixes)} dirs)", 214)
+            register_labels(["alias", "...", "index-alias", "noun-alias", "standalone", "taxonomy-match"])
             aliases = []
             for prefix in sorted(module_prefixes):
                 if prefix in index_name_to_abbrev:
@@ -320,19 +270,20 @@ def run_analysis(args: argparse.Namespace) -> int:
                 else:
                     standalone_count += 1
             for name, abbrev in aliases[:5]:
-                print(_section_line(pipe, "alias", f"{C.MUTED}{name.lower()}{C.RESET} \u2192 {C.CYAN}{abbrev}{C.RESET}"))
+                section_line(CHECK, "alias", f"{C.MUTED}{name.lower()}{C.RESET} \u2192 {C.CYAN}{abbrev}{C.RESET}")
             if len(aliases) > 5:
-                print()
-                print(_section_line(pipe, "...", f"{C.MUTED}({len(aliases) - 5} more){C.RESET}"))
-                print()
-            print(_section_line(pipe, "index-alias", f"{C.CYAN}{alias_count}{C.RESET}"))
-            print(_section_line(pipe, "noun-alias", f"{C.GREEN}{noun_alias_count}{C.RESET}"))
-            print(_section_line(pipe, "standalone", f"{C.YELLOW}{standalone_count}{C.RESET}"))
-            print(_section_line(pipe, "taxonomy-match", f"{C.CYAN}{taxonomy_match_count}{C.RESET}"))
+                section_pipe()
+                section_line(SKIP, "...", f"{C.MUTED}({len(aliases) - 5} more){C.RESET}")
+                section_pipe()
+            section_line(CHECK, "index-alias", f"{C.CYAN}{alias_count}{C.RESET}")
+            section_line(CHECK, "noun-alias", f"{C.GREEN}{noun_alias_count}{C.RESET}")
+            section_line(CHECK, "standalone", f"{C.YELLOW}{standalone_count}{C.RESET}")
+            section_line(CHECK, "taxonomy-match", f"{C.CYAN}{taxonomy_match_count}{C.RESET}")
 
         # === Overlaps Section ===
         if show_overlap:
-            pipe = _section_header("Overlaps")
+            section_header("Overlaps", 97)
+            register_labels(["shared", "...", "shared-total"])
             sources: Dict[str, list] = {}
             for tok in all_tokens:
                 srcs = []
@@ -350,10 +301,10 @@ def run_analysis(args: argparse.Namespace) -> int:
                     sources[tok] = srcs
 
             for tok in sorted(sources.keys())[:20]:
-                print(_section_line(pipe, "shared", f"{C.CYAN}{tok}{C.RESET} \u2014 {C.MUTED}{' + '.join(sources[tok])}{C.RESET}", SKIP))
+                section_line(SKIP, "shared", f"{C.CYAN}{tok}{C.RESET} \u2014 {C.MUTED}{' + '.join(sources[tok])}{C.RESET}")
             if len(sources) > 20:
-                print(_section_line(pipe, "...", f"{C.MUTED}({len(sources) - 20} more){C.RESET}"))
-            print(_section_line(pipe, "shared-total", f"{C.CYAN}{len(sources):,}{C.RESET}"))
+                section_line(SKIP, "...", f"{C.MUTED}({len(sources) - 20} more){C.RESET}")
+            section_line(CHECK, "shared-total", f"{C.CYAN}{len(sources):,}{C.RESET}")
 
     # === Broken Aliases Section (always checked) ===
     # Verify every ACTUAL alias in the generator maps to the correct bit.
@@ -375,44 +326,46 @@ def run_analysis(args: argparse.Namespace) -> int:
 
     has_broken = len(broken_aliases) > 0
     if not quiet or has_broken:
-        pipe = _section_header(f"Alias Integrity ({len(all_alias_pairs)} pairs)")
+        section_header(f"Alias Integrity ({len(all_alias_pairs)} pairs)", 242)
+        register_labels(["BROKEN", "...", "broken-total", "status"])
         if has_broken:
             for noun, abbr, n_bit, a_bit in broken_aliases[:20]:
-                print(_section_line(pipe, "BROKEN",
+                section_line(CROSS, "BROKEN",
                     f"{C.RED}{noun}(bit={n_bit}){C.RESET} != "
                     f"{C.CYAN}{abbr}(bit={a_bit}){C.RESET} "
-                    f"\u2014 +{abbr} won't match files with \"{noun.lower()}\"",
-                    CROSS))
+                    f"\u2014 +{abbr} won't match files with \"{noun.lower()}\"")
             if len(broken_aliases) > 20:
-                print(_section_line(pipe, "...",
-                    f"{C.MUTED}({len(broken_aliases) - 20} more){C.RESET}"))
-            print(_section_line(pipe, "broken-total",
-                f"{C.RED}{len(broken_aliases)}{C.RESET}", CROSS))
+                section_line(SKIP, "...",
+                    f"{C.MUTED}({len(broken_aliases) - 20} more){C.RESET}")
+            section_line(CROSS, "broken-total",
+                f"{C.RED}{len(broken_aliases)}{C.RESET}")
         else:
-            print(_section_line(pipe, "status",
-                f"{C.GREEN}All noun aliases resolve to correct bits{C.RESET}"))
+            section_line(CHECK, "status",
+                f"{C.GREEN}All noun aliases resolve to correct bits{C.RESET}")
 
     # === Summary Section (always shown) ===
-    pipe = _section_header(f"Summary ({total_unique:,})")
-    print(_section_line(pipe, "taxonomy", f"{C.CYAN}{len(taxonomy_tokens):,}{C.RESET}"))
-    print(_section_line(pipe, "hub-constants", f"{C.CYAN}{len(hub_const_parts):,}{C.RESET}"))
-    print(_section_line(pipe, "hub-metrics", f"{C.CYAN}{len(hub_metric_parts):,}{C.RESET}"))
-    print(_section_line(pipe, "hub-tags", f"{C.CYAN}{len(hub_tag_parts):,}{C.RESET}"))
-    print(_section_line(pipe, "module-prefix", f"{C.CYAN}{len(module_prefixes):,}{C.RESET}"))
-    print(_section_line(pipe, "unique-bits", f"{C.YELLOW}{actual_bits:,}{C.RESET}"))
+    section_header(f"Summary ({total_unique:,})", 179)
+    register_labels(["taxonomy", "hub-constants", "hub-metrics", "hub-tags",
+                      "module-prefix", "unique-bits", "broken-aliases", "capacity"])
+    section_line(CHECK, "taxonomy", f"{C.CYAN}{len(taxonomy_tokens):,}{C.RESET}")
+    section_line(CHECK, "hub-constants", f"{C.CYAN}{len(hub_const_parts):,}{C.RESET}")
+    section_line(CHECK, "hub-metrics", f"{C.CYAN}{len(hub_metric_parts):,}{C.RESET}")
+    section_line(CHECK, "hub-tags", f"{C.CYAN}{len(hub_tag_parts):,}{C.RESET}")
+    section_line(CHECK, "module-prefix", f"{C.CYAN}{len(module_prefixes):,}{C.RESET}")
+    section_line(CHECK, "unique-bits", f"{C.YELLOW}{actual_bits:,}{C.RESET}")
     if has_broken:
-        print(_section_line(pipe, "broken-aliases",
-            f"{C.RED}{len(broken_aliases)} BROKEN{C.RESET}", CROSS))
+        section_line(CROSS, "broken-aliases",
+            f"{C.RED}{len(broken_aliases)} BROKEN{C.RESET}")
 
     pct = (actual_bits / capacity) * 100
     cap_str = f"{C.YELLOW}{actual_bits:,}{C.RESET} / {C.MUTED}{capacity:,}{C.RESET} ({C.CYAN}{pct:.0f}%{C.RESET})"
     if pct > 100:
-        print(_section_line(pipe, "capacity", f"{cap_str} {C.RED}<- OVER!{C.RESET}", CROSS))
+        section_line(CROSS, "capacity", f"{cap_str} {C.RED}<- OVER!{C.RESET}")
     elif pct > 90:
-        print(_section_line(pipe, "capacity", f"{cap_str} {C.YELLOW}<- WARN >90%{C.RESET}"))
+        section_line(CHECK, "capacity", f"{cap_str} {C.YELLOW}<- WARN >90%{C.RESET}")
     else:
-        print(_section_line(pipe, "capacity", cap_str))
-    print()
+        section_line(CHECK, "capacity", cap_str)
+    tprint()
 
     # Exit code
     if has_broken:
