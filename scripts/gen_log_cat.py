@@ -21,14 +21,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 # ---------------------------------------------------------------------------
-# Console framework (SSOT terminal theme from sha-web-console)
+# Console framework (SSOT: shared/ase-console)
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 ASE_LOG_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = ASE_LOG_DIR.parent.parent.parent
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "clients" / "sha-client-web" / "sha-web-console" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "shared" / "ase-console" / "python"))
 from console import (C, section_header, section_line, section_pipe, section_detail,
                       register_labels, tprint, c256, CHECK, CROSS, SKIP, HASH, ARROW, WARN)
 
