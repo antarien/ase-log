@@ -17,7 +17,7 @@ static std::filesystem::path get_project_root() {
     if (len != -1) {
         buf[len] = '\0';
         std::filesystem::path exe_path(buf);
-        // Binary: /path/to/ase/build/bin/ase-server-game
+        // Binary: /path/to/ase/build/bin/ase-server-world
         // Root:   /path/to/ase/
         return exe_path.parent_path().parent_path().parent_path();
     }
@@ -120,7 +120,7 @@ void LogSystem::on_start(ecs::Registry& /*registry*/) {
         std::filesystem::resize_file(absolute_log_path, 0);
     }
 
-    // === SERVER LOGGER (with [SERVER] prefix) ===
+    /** SERVER LOGGER (with [SERVER] prefix) */
     // Console: "[2025-01-15 18:32:45.123] [Inf] [ASE] [SERVER] message"
     auto server_console_formatter = std::make_unique<spdlog::pattern_formatter>();
     server_console_formatter->add_flag<ColoredLevelFlag>('*');
@@ -149,7 +149,7 @@ void LogSystem::on_start(ecs::Registry& /*registry*/) {
     g_logger_->flush_on(spdlog::level::trace);
     spdlog::register_logger(g_logger_);
 
-    // === CLIENT LOGGER (without [SERVER] - client logs have their own prefix) ===
+    /** CLIENT LOGGER (without [SERVER] - client logs have their own prefix) */
     // Console: "[2025-01-15 18:32:45.123] [Inf] [ASE] message"
     auto client_console_formatter = std::make_unique<spdlog::pattern_formatter>();
     client_console_formatter->add_flag<ColoredLevelFlag>('*');

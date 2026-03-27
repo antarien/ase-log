@@ -126,7 +126,7 @@ add_library(${PROJECT_NAME} STATIC
     CORE
     Logging system implementation.
     ]]
-    src/log_system.cpp
+    src/log_sys.cpp
     src/log_cat_gen.cpp
 
     #[[

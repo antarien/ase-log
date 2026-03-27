@@ -9,7 +9,7 @@ Part of [ASE - Antares Simulation Engine](../../..)
 
 ## Overview
 
-`ase-log` provides structured logging for ASE using [spdlog](https://github.com/gabime/spdlog). The logger is implemented as an ECS System that initializes during startup and cleanly shuts down, with both console and file output.
+`ase-log` provides structured logging for ASE using [spdlog](https://github.com/gabime/spdlog), implementing a 3-axis filtering system that enables precise control over log output during development and production. The three axes are: severity level (trace, debug, info, warn, error, critical), module source (which ase-* module produced the log entry), and category (initialization, tick, network, persistence, etc.). This enables queries like "show only error-level messages from ase-terrain during persistence operations" without drowning in irrelevant output from the 40+ active modules. The logger initializes as an ECS System during the Initialization schedule and cleanly shuts down during the Shutdown schedule, ensuring log file handles are properly flushed. Console output uses color-coded formatting with module prefixes (e.g. `\x1b[38;5;178mTM[data]\x1b[0m`) for visual distinction in development, while file output produces structured JSON for production log aggregation. Every system's on_start() logs info, invalid values trigger warn, and NOT_FOUND conditions produce error — these conventions are enforced by the ECS validator.
 
 ## Features
 
