@@ -5735,9 +5735,9 @@ constexpr int BIT_SERF = 5684;
 constexpr int BIT_SERL = 5685;
 constexpr int BIT_SERM = 5686;
 constexpr int BIT_SERS = 5687;
-constexpr int BIT_SERVER_GAME = 5688;
-constexpr int BIT_SERVER_MASTER = 5689;
-constexpr int BIT_SERVER_TOOLS = 5690;
+constexpr int BIT_SERVER_ENGINE = 5688;
+constexpr int BIT_SERVER_TOOLS = 5689;
+constexpr int BIT_SERVER_WORLD = 5690;
 constexpr int BIT_SESS = 5691;
 constexpr int BIT_SET = 5692;
 constexpr int BIT_SETG = 5693;
@@ -13031,9 +13031,9 @@ constexpr InitEntry g_init_table[] = {
     {2055100251u, BIT_SERL},  // "serl"
     {2038322632u, BIT_SERM},  // "serm"
     {1736325490u, BIT_SERS},  // "sers"
-    {3324810655u, BIT_SERVER_GAME},  // "server-game"
-    {11742955u, BIT_SERVER_MASTER},  // "server-master"
+    {2117479699u, BIT_SERVER_ENGINE},  // "server-engine"
     {3977729316u, BIT_SERVER_TOOLS},  // "server-tools"
+    {3031003979u, BIT_SERVER_WORLD},  // "server-world"
     {1601957443u, BIT_SESS},  // "sess"
     {3324446467u, BIT_SET},  // "set"
     {1399890540u, BIT_SETG},  // "setg"
@@ -14888,6 +14888,7 @@ constexpr InitEntry g_init_table[] = {
     {782210898u, BIT_ECMT},  // "encirclement" (module prefix -> ecmt)
     {3980462502u, BIT_ENDR},  // "endurance" (module prefix -> endr)
     {701255829u, BIT_NRG},  // "energy" (module prefix -> nrg)
+    {3993360443u, BIT_ENGN},  // "engine" (module prefix -> engn)
     {2802367385u, BIT_ENGD},  // "engineered" (module prefix -> engd)
     {999080129u, BIT_ENHC},  // "enhancer" (module prefix -> enhc)
     {3124397884u, BIT_ENRC},  // "enrichment" (module prefix -> enrc)
@@ -15086,7 +15087,6 @@ constexpr InitEntry g_init_table[] = {
     {2886119569u, BIT_MNFT},  // "manifestation" (module prefix -> mnft)
     {4002013424u, BIT_MRCH},  // "march" (module prefix -> mrch)
     {2585691303u, BIT_MARN},  // "marine" (module prefix -> marn)
-    {3398287155u, BIT_MSTR},  // "master" (module prefix -> mstr)
     {656679294u, BIT_MSTR},  // "mastery" (module prefix -> mstr)
     {2116038550u, BIT_MTCH},  // "match" (module prefix -> mtch)
     {3538210912u, BIT_MAT},  // "material" (module prefix -> mat)
