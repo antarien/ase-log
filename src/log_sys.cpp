@@ -1,4 +1,5 @@
 #include <ase/log/log.hpp>
+#include <ase/log/log_module.hpp>
 #include <spdlog/pattern_formatter.h>
 #include <filesystem>
 #ifdef __linux__
@@ -97,11 +98,21 @@ LogSystem::LogSystem(const std::string& name, const std::string& log_file)
     , log_file_(log_file)
 {}
 
-void LogSystem::on_start(ecs::Registry& /*registry*/) {
+void LogSystem::on_start(ecs::Registry& registry) {
     if (g_logger_) return;
 
+    // SSOT: LogConfig in ctx() determines log file path
+    // Server sets it before add_module<LogModule>: engine.log or world-{port}.log
+    // Default (from LogConfig): logs/engine.log
+    auto* cfg = registry.ctx().find<LogConfig>();
+    if (cfg) {
+        log_file_ = cfg->log_file;
+    } else if (log_file_.empty()) {
+        LogConfig defaults;
+        log_file_ = defaults.log_file;
+    }
+
     // Calculate absolute log path relative to project root (not cwd!)
-    // This ensures logs always go to /path/to/ase/logs/antares.log
     std::filesystem::path absolute_log_path;
     if (std::filesystem::path(log_file_).is_relative()) {
         absolute_log_path = get_project_root() / log_file_;

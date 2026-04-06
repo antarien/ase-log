@@ -79,7 +79,7 @@ namespace ase::log {
 class LogSystem : public ecs::System {
 public:
     LogSystem() = default;
-    explicit LogSystem(const std::string& name, const std::string& log_file = "logs/antares.log");
+    explicit LogSystem(const std::string& name, const std::string& log_file = "");
 
     const char* name() const override { return "LogSystem"; }
     int priority() const override { return 0; }  // First system to run
@@ -99,7 +99,7 @@ public:
 
 private:
     std::string logger_name_ = "ASE";
-    std::string log_file_ = "logs/antares.log";
+    std::string log_file_;
 
     static std::shared_ptr<spdlog::logger> g_logger_;         // Server logger with [SERVER] prefix
     static std::shared_ptr<spdlog::logger> g_client_logger_;  // Client logger without [SERVER] prefix

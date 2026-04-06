@@ -12,8 +12,20 @@
 #include <ase/ecs/app.hpp>
 #include <ase/log/version.hpp>
 #include <ase/log/log.hpp>
+#include <cstring>
 
 namespace ase::log {
+
+/** Log configuration — set before adding LogModule to configure log file path.
+ *  Usage:
+ *    app.world().registry().ctx().emplace<LogConfig>("logs/engine.log");
+ *    app.add_module<LogModule>();
+ */
+struct LogConfig {
+    char log_file[256] = "logs/engine.log";
+    LogConfig() = default;
+    explicit LogConfig(const char* path) { std::strncpy(log_file, path, 255); log_file[255] = '\0'; }
+};
 
 struct LogModule {
     static constexpr const char* name() { return "ase-log"; }
