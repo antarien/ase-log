@@ -23,8 +23,13 @@ namespace ase::log {
  */
 struct LogConfig {
     char log_file[256] = "logs/engine.log";
+    char label[16] = "SERVER";
     LogConfig() = default;
     explicit LogConfig(const char* path) { std::strncpy(log_file, path, 255); log_file[255] = '\0'; }
+    LogConfig(const char* path, const char* lbl) {
+        std::strncpy(log_file, path, 255); log_file[255] = '\0';
+        std::strncpy(label, lbl, 15); label[15] = '\0';
+    }
 };
 
 struct LogModule {

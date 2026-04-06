@@ -104,9 +104,11 @@ void LogSystem::on_start(ecs::Registry& registry) {
     // SSOT: LogConfig in ctx() determines log file path
     // Server sets it before add_module<LogModule>: engine.log or world-{port}.log
     // Default (from LogConfig): logs/engine.log
+    std::string lbl = "SERVER";
     auto* cfg = registry.ctx().find<LogConfig>();
     if (cfg) {
         log_file_ = cfg->log_file;
+        if (cfg->label[0] != '\0') lbl = cfg->label;
     } else if (log_file_.empty()) {
         LogConfig defaults;
         log_file_ = defaults.log_file;
@@ -135,12 +137,12 @@ void LogSystem::on_start(ecs::Registry& registry) {
     // Console: "[2025-01-15 18:32:45.123] [Inf] [ASE] [SERVER] message"
     auto server_console_formatter = std::make_unique<spdlog::pattern_formatter>();
     server_console_formatter->add_flag<ColoredLevelFlag>('*');
-    server_console_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] [SERVER] %v");
+    server_console_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] [" + lbl + "] %v");
 
     // File: plain text
     auto server_file_formatter = std::make_unique<spdlog::pattern_formatter>();
     server_file_formatter->add_flag<PlainLevelFlag>('#');
-    server_file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] [SERVER] %v");
+    server_file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] [" + lbl + "] %v");
 
     auto server_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     server_console_sink->set_color(spdlog::level::trace, "\033[38;5;243m");
