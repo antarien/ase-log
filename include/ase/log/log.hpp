@@ -76,6 +76,15 @@ namespace ase::log {
 // LogSystem - The Logger as an ECS System
 // ============================================================================
 
+// Structured log entry for /api/logs endpoint (ringbuffer output)
+struct LogEntry {
+    uint32_t seq = 0;           // monotonic sequence number
+    uint8_t level = 0;          // spdlog level (0=trace..5=critical)
+    char timestamp[16] = {};    // "HH:MM:SS.mmm"
+    char system[32] = {};       // extracted from "[SystemName]" in message
+    char message[512] = {};     // log message (truncated if too long)
+};
+
 class LogSystem : public ecs::System {
 public:
     LogSystem() = default;
@@ -97,6 +106,10 @@ public:
     static std::shared_ptr<spdlog::logger>& client_logger() { return g_client_logger_; }
     static const std::string& log_path() { return g_log_path_; }
 
+    // Recent logs from in-memory ringbuffer (for HTTP /api/logs endpoint)
+    static std::vector<LogEntry> recent_logs(uint32_t since_seq = 0);
+    static uint32_t log_counter() { return g_log_counter_.load(); }
+
 private:
     std::string logger_name_ = "ASE";
     std::string log_file_;
@@ -104,6 +117,8 @@ private:
     static std::shared_ptr<spdlog::logger> g_logger_;         // Server logger with [SERVER] prefix
     static std::shared_ptr<spdlog::logger> g_client_logger_;  // Client logger without [SERVER] prefix
     static std::string g_log_path_;
+    static std::shared_ptr<spdlog::sinks::sink> g_ringbuffer_sink_;
+    static std::atomic<uint32_t> g_log_counter_;
 };
 
 // ============================================================================

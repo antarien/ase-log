@@ -1,6 +1,8 @@
 #include <ase/log/log.hpp>
 #include <ase/log/log_module.hpp>
 #include <spdlog/pattern_formatter.h>
+#include <spdlog/sinks/base_sink.h>
+#include <spdlog/sinks/ringbuffer_sink.h>
 #include <filesystem>
 #ifdef __linux__
 #include <unistd.h>
@@ -8,6 +10,17 @@
 #endif
 
 namespace ase::log {
+
+// Counting sink — increments atomic counter for every log message (sequence numbers for /api/logs)
+class CountingSink : public spdlog::sinks::base_sink<std::mutex> {
+public:
+    explicit CountingSink(std::atomic<uint32_t>& counter) : counter_(counter) {}
+protected:
+    void sink_it_(const spdlog::details::log_msg& /*msg*/) override { counter_.fetch_add(1, std::memory_order_relaxed); }
+    void flush_() override {}
+private:
+    std::atomic<uint32_t>& counter_;
+};
 
 // Get project root directory (where logs/ should be created)
 // Binary is in build/bin/, so project root is ../../
@@ -92,6 +105,11 @@ public:
 std::shared_ptr<spdlog::logger> LogSystem::g_logger_ = nullptr;        // Server logger with [SERVER] prefix
 std::shared_ptr<spdlog::logger> LogSystem::g_client_logger_ = nullptr; // Client logger without [SERVER] prefix
 std::string LogSystem::g_log_path_;
+std::shared_ptr<spdlog::sinks::sink> LogSystem::g_ringbuffer_sink_ = nullptr;
+std::atomic<uint32_t> LogSystem::g_log_counter_{0};
+
+// File-scope: typed pointer for ringbuffer access (avoids ringbuffer_sink.h in header)
+static std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> g_ring_typed_ = nullptr;
 
 LogSystem::LogSystem(const std::string& name, const std::string& log_file)
     : logger_name_(name)
@@ -156,7 +174,20 @@ void LogSystem::on_start(ecs::Registry& registry) {
     auto server_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(absolute_log_path.string(), true);
     server_file_sink->set_formatter(std::move(server_file_formatter));
 
-    std::vector<spdlog::sink_ptr> server_sinks{server_console_sink, server_file_sink};
+    // Ringbuffer sink (spdlog built-in, in RAM for /api/logs HTTP endpoint)
+    uint32_t ring_size = 500;
+    if (cfg) ring_size = cfg->ringbuffer_size;
+    g_ring_typed_ = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(ring_size);
+    g_ringbuffer_sink_ = g_ring_typed_;
+    auto ring_formatter = std::make_unique<spdlog::pattern_formatter>();
+    ring_formatter->add_flag<PlainLevelFlag>('#');
+    ring_formatter->set_pattern("[%H:%M:%S.%e] [%#] %v");
+    g_ringbuffer_sink_->set_formatter(std::move(ring_formatter));
+
+    // Counting sink (sequence numbers for delta polling)
+    auto counting_sink = std::make_shared<CountingSink>(g_log_counter_);
+
+    std::vector<spdlog::sink_ptr> server_sinks{server_console_sink, server_file_sink, g_ringbuffer_sink_, counting_sink};
     g_logger_ = std::make_shared<spdlog::logger>(logger_name_, server_sinks.begin(), server_sinks.end());
     g_logger_->set_level(spdlog::level::debug);
     g_logger_->flush_on(spdlog::level::trace);
@@ -192,6 +223,90 @@ void LogSystem::on_start(ecs::Registry& registry) {
     g_client_logger_->flush_on(spdlog::level::trace);
     spdlog::register_logger(g_client_logger_);
 
+}
+
+// Parse ringbuffer formatted string "[HH:MM:SS.mmm] [LVL] [SystemName] message" → LogEntry
+static LogEntry parse_ring_line(const std::string& line, uint32_t seq) {
+    static const char* level_names[] = {"TRC", "DBG", "INF", "WRN", "ERR", "CRT"};
+    LogEntry entry{};
+    entry.seq = seq;
+    entry.level = 2;  // default INF
+
+    std::string_view sv(line);
+
+    // [HH:MM:SS.mmm]
+    if (sv.size() > 14 && sv[0] == '[') {
+        auto ts_end = sv.find(']', 1);
+        if (ts_end != std::string_view::npos && ts_end < sizeof(entry.timestamp)) {
+            std::memcpy(entry.timestamp, sv.data() + 1, ts_end - 1);
+            entry.timestamp[ts_end - 1] = '\0';
+            sv.remove_prefix(ts_end + 1);
+            if (!sv.empty() && sv[0] == ' ') sv.remove_prefix(1);
+        }
+    }
+
+    // [LVL]
+    if (sv.size() > 4 && sv[0] == '[') {
+        auto lvl_end = sv.find(']', 1);
+        if (lvl_end != std::string_view::npos) {
+            auto lvl_str = sv.substr(1, lvl_end - 1);
+            for (uint8_t i = 0; i < 6; ++i) {
+                if (lvl_str == level_names[i]) { entry.level = i; break; }
+            }
+            sv.remove_prefix(lvl_end + 1);
+            if (!sv.empty() && sv[0] == ' ') sv.remove_prefix(1);
+        }
+    }
+
+    // [SystemName] (optional, first bracket in remaining text)
+    if (sv.size() > 2 && sv[0] == '[') {
+        auto sys_end = sv.find(']', 1);
+        if (sys_end != std::string_view::npos) {
+            auto len = sys_end - 1;
+            if (len > 0 && len < sizeof(entry.system)) {
+                std::memcpy(entry.system, sv.data() + 1, len);
+                entry.system[len] = '\0';
+            }
+            sv.remove_prefix(sys_end + 1);
+            if (!sv.empty() && sv[0] == ' ') sv.remove_prefix(1);
+        }
+    }
+
+    // Remaining = message
+    auto msg_len = (sv.size() < sizeof(entry.message) - 1) ? sv.size() : sizeof(entry.message) - 1;
+    std::memcpy(entry.message, sv.data(), msg_len);
+    entry.message[msg_len] = '\0';
+
+    return entry;
+}
+
+std::vector<LogEntry> LogSystem::recent_logs(uint32_t since_seq) {
+    if (!g_ring_typed_) return {};
+    auto all = g_ring_typed_->last_formatted();
+    uint32_t seq = g_log_counter_.load();
+    uint32_t total = static_cast<uint32_t>(all.size());
+
+    if (total == 0) return {};
+
+    // Determine which lines to return
+    uint32_t count;
+    if (since_seq == 0) {
+        count = (total > 50) ? 50 : total;
+    } else if (since_seq >= seq) {
+        return {};
+    } else {
+        count = seq - since_seq;
+        if (count > total) count = total;
+    }
+
+    // Parse formatted strings to LogEntry, assign sequence numbers
+    std::vector<LogEntry> result;
+    result.reserve(count);
+    uint32_t start_seq = seq - count + 1;
+    for (uint32_t i = total - count; i < total; ++i) {
+        result.push_back(parse_ring_line(all[i], start_seq + (i - (total - count))));
+    }
+    return result;
 }
 
 void LogSystem::on_stop(ecs::Registry& /*registry*/) {

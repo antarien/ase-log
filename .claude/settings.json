@@ -6,6 +6,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/../../../.claude/hooks/intent_guard_enforce.py",
+            "timeout": 2000
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
             "command": "python3 $CLAUDE_PROJECT_DIR/../../../.claude/hooks/ecs_compliance_validator.py",
             "timeout": 5000
           }
@@ -30,6 +40,16 @@
             "timeout": 5000
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/../../../.claude/hooks/migration_doc_validator.py",
+            "timeout": 10000
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -40,6 +60,17 @@
             "type": "command",
             "command": "python3 $CLAUDE_PROJECT_DIR/../../../.claude/hooks/post_bash_guard.py",
             "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/../../../.claude/hooks/intent_guard_classify.py",
+            "timeout": 2000
           }
         ]
       }
