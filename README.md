@@ -31,7 +31,7 @@ Part of [ASE - Antares Simulation Engine](../../..)
 ### CMake Integration
 
 ```cmake
-add_subdirectory(core/core/ase-log)
+add_subdirectory(core/ase-log)
 target_link_libraries(your_target PRIVATE ase-log)
 ```
 

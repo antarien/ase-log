@@ -27,10 +27,10 @@ from typing import Dict, Set, Tuple
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 ASE_LOG_DIR = SCRIPT_DIR.parent
-PROJECT_ROOT = ASE_LOG_DIR.parent.parent.parent
+PROJECT_ROOT = ASE_LOG_DIR.parent.parent
 
 # Console framework (SSOT: sha-client-web/sha-web-console)
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "clients" / "sha-client-web" / "public" / "console" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "clients" / "sha-client-web" / "public" / "console" / "python"))
 from console import (C, section_header, section_line, section_pipe, section_detail,
                       register_labels, tprint, c256, set_no_color, CHECK, CROSS, SKIP, HASH, ARROW, WARN)
 
@@ -103,7 +103,7 @@ def run_analysis(args: argparse.Namespace) -> int:
     if args.no_color:
         set_no_color(True)
 
-    taxonomy_dir = PROJECT_ROOT / "core" / "core" / "ase-validator" / "ecs_validator" / "data" / "taxonomy"
+    taxonomy_dir = PROJECT_ROOT / "core" / "ase-validator" / "ecs_validator" / "data" / "taxonomy"
     hub_data_dir = PROJECT_ROOT / "modules" / "ase-hub" / "data"
 
     if not taxonomy_dir.exists():

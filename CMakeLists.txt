@@ -61,14 +61,20 @@ configure_file(
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-set(_TAXONOMY_DIR "${CMAKE_SOURCE_DIR}/core/core/ase-validator/ecs_validator/data/taxonomy")
+# ASE_ROOT for standalone server builds, CMAKE_SOURCE_DIR for root build
+if(DEFINED ASE_ROOT)
+    set(_ASE_BASE "${ASE_ROOT}")
+else()
+    set(_ASE_BASE "${CMAKE_SOURCE_DIR}")
+endif()
+set(_TAXONOMY_DIR "${_ASE_BASE}/core/ase-validator/ecs_validator/data/taxonomy")
 set(_STAMP_FILE "${CMAKE_CURRENT_BINARY_DIR}/ase-log-codegen.stamp")
 
 add_custom_command(
     OUTPUT ${_STAMP_FILE}
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_log_cat.py"
     COMMAND ${CMAKE_COMMAND} -E touch ${_STAMP_FILE}
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${_ASE_BASE}
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_log_cat.py"
             "${_TAXONOMY_DIR}/_index.json"
             "${_TAXONOMY_DIR}/01_prp_property.json"
@@ -107,9 +113,9 @@ add_custom_command(
             "${_TAXONOMY_DIR}/34_cfg_config.json"
             "${_TAXONOMY_DIR}/35_err_error.json"
             "${_TAXONOMY_DIR}/36_ant_antares.json"
-            "${CMAKE_SOURCE_DIR}/modules/ase-hub/data/hub_constants.json"
-            "${CMAKE_SOURCE_DIR}/modules/ase-hub/data/hub_metrics.json"
-            "${CMAKE_SOURCE_DIR}/modules/ase-hub/data/hub_tags.json"
+            "${_ASE_BASE}/modules/ase-hub/data/hub_constants.json"
+            "${_ASE_BASE}/modules/ase-hub/data/hub_metrics.json"
+            "${_ASE_BASE}/modules/ase-hub/data/hub_tags.json"
     COMMENT "Checking log categories (regenerates only if taxonomy or hub JSON changed)..."
 )
 
@@ -161,6 +167,9 @@ target_include_directories(${PROJECT_NAME}
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
+
+# ASE project root for SSOT log directory (logs/ always at ASE root, not subgit root)
+target_compile_definitions(${PROJECT_NAME} PRIVATE ASE_PROJECT_ROOT="${_ASE_BASE}")
 
 target_link_libraries(${PROJECT_NAME}
     PUBLIC

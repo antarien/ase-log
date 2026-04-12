@@ -4,10 +4,6 @@
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/ringbuffer_sink.h>
 #include <filesystem>
-#ifdef __linux__
-#include <unistd.h>
-#include <climits>
-#endif
 
 namespace ase::log {
 
@@ -22,22 +18,16 @@ private:
     std::atomic<uint32_t>& counter_;
 };
 
-// Get project root directory (where logs/ should be created)
-// Binary is in build/bin/, so project root is ../../
+// Get ASE project root directory (where logs/ should be created)
+// SSOT: ASE_PROJECT_ROOT compile define from CMake (_ASE_BASE),
+// resolves correctly for both central and standalone subgit builds.
 static std::filesystem::path get_project_root() {
-#ifdef __linux__
-    char buf[PATH_MAX];
-    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-    if (len != -1) {
-        buf[len] = '\0';
-        std::filesystem::path exe_path(buf);
-        // Binary: /path/to/ase/build/bin/ase-server-world
-        // Root:   /path/to/ase/
-        return exe_path.parent_path().parent_path().parent_path();
-    }
-#endif
+#ifdef ASE_PROJECT_ROOT
+    return std::filesystem::path(ASE_PROJECT_ROOT);
+#else
     // Fallback: current working directory
     return std::filesystem::current_path();
+#endif
 }
 
 // Custom flag for colored 3-character log level (matching ecs.cpp boot_log)
