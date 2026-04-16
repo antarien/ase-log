@@ -14,7 +14,7 @@
 #   ASE_{ABBR}_NAME=Full Name
 #   ASE_{ABBR}_DESC=Short description
 #   ASE_{ABBR}_LAYER=0-5
-#   ASE_{ABBR}_STATUS=stub|poc|init|core|feat|refine|alpha|beta|stable
+#   ASE_{ABBR}_STATUS=seed|poc|init|core|feat|refine|alpha|beta|stable
 #   ASE_{ABBR}_CREATED=YYYY-MM-DD
 #   ASE_{ABBR}_UPDATED=YYYY-MM-DD
 #
@@ -27,7 +27,7 @@
 #   5 = Servers & Clients (executables)
 #
 # STATUS (auto-calculated from commits, max=refine):
-#   stub   = <5 commits, placeholder only
+#   seed   = <5 commits, first code landed
 #   poc    = 5-15 commits, proof of concept
 #   init   = 15-30 commits, initial development
 #   core   = 30-60 commits, core functionality
@@ -39,12 +39,10 @@
 #   stable = Production ready (set manually)
 #
 # ==============================================================================
-
-ASE_LOG=00.00.20.00020
+ASE_LOG=00.00.46.00046
 ASE_LOG_NAME=Logging
 ASE_LOG_DESC=Structured logging with spdlog
 ASE_LOG_LAYER=1
-ASE_LOG_STATUS=init
+ASE_LOG_STATUS=core
 ASE_LOG_CREATED=2025-12-15
-ASE_LOG_UPDATED=2026-01-30
-
+ASE_LOG_UPDATED=2026-04-13

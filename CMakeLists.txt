@@ -147,6 +147,37 @@ add_library(${PROJECT_NAME} STATIC
 )
 add_library(ase::log ALIAS ${PROJECT_NAME})
 
+# ------------------------------------------------------------------
+# ase::log::headers — headers-only facade for dlopen'd .module/.plugin
+# ------------------------------------------------------------------
+# L0/L1 ase-log stays STATIC (kernel dlopen migration: L1 compile-time).
+# Main server binary links ase-log STATIC and exports its symbols via
+# ENABLE_EXPORTS. dlopen'd .module / .plugin files must NOT embed their
+# own copy of ase-log — otherwise each module gets its own g_logger_,
+# g_level_mask, CategoryMask etc. Log calls from module code would hit
+# a null logger copy and be silently dropped; CLI filter state would
+# diverge per module; entt type ids would mismatch across boundaries.
+#
+# Every .module / .plugin CMakeLists uses this INTERFACE target in
+# place of ase::log:
+#     target_link_libraries(ase_hub PUBLIC ase::log::headers ...)
+# The module gets the ase/log/*.hpp include paths + cxx20 requirement
+# but NO static archive linkage. Unresolved ase::log::* symbols in the
+# .module are satisfied at dlopen time (RTLD_GLOBAL) from the main
+# server binary.
+add_library(ase-log-headers INTERFACE)
+add_library(ase::log::headers ALIAS ase-log-headers)
+target_include_directories(ase-log-headers
+    INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+target_compile_features(ase-log-headers INTERFACE cxx_std_20)
+# ase/log/log.hpp derives LogSystem from ecs::System — consumers need
+# ecs headers too. Re-exported through this facade.
+target_link_libraries(ase-log-headers INTERFACE ase::ecs)
+
 # Ensure codegen runs before compiling (checks taxonomy, regenerates if needed)
 add_dependencies(${PROJECT_NAME} ase-log-codegen)
 

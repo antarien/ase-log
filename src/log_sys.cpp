@@ -1,8 +1,11 @@
 #include <ase/log/log.hpp>
 #include <ase/log/log_module.hpp>
+#include <ase/log/log_filter.hpp>
 #include <spdlog/pattern_formatter.h>
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/ringbuffer_sink.h>
+#include <algorithm>
+#include <cstring>
 #include <filesystem>
 
 namespace ase::log {
@@ -101,53 +104,139 @@ std::atomic<uint32_t> LogSystem::g_log_counter_{0};
 // File-scope: typed pointer for ringbuffer access (avoids ringbuffer_sink.h in header)
 static std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> g_ring_typed_ = nullptr;
 
+// Capture ringbuffer — holds every log call made between install_capture_logger()
+// (first line of Kernel::build) and finalize_logger_after_boot (end of
+// Schedule-Bootstrap block). One logger, sinks mutated at runtime.
+static std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> g_capture_ring_ = nullptr;
+
+// All real sinks are BUILT in LogSystem::on_start but NOT attached to the
+// logger yet. During the Schedule-Bootstrap block the logger holds ONLY
+// the capture_ring, so every log line (including those from every system's
+// on_start) goes into the same single destination — no channel is live, no
+// channel misses entries, no interleaving with the stdout boot progress
+// table. finalize_logger_after_boot then attaches all four real sinks in
+// one go and replays the capture_ring into all of them so every sink
+// (console, file, HTTP-ring, counting) contains 100% identical content.
+static std::shared_ptr<spdlog::sinks::sink> g_pending_console_sink_ = nullptr;
+static std::shared_ptr<spdlog::sinks::sink> g_pending_file_sink_    = nullptr;
+static std::shared_ptr<spdlog::sinks::sink> g_pending_http_ring_    = nullptr;
+static std::shared_ptr<spdlog::sinks::sink> g_pending_counting_     = nullptr;
+
+// Install the capture-phase logger. Must be called as the FIRST line of
+// Kernel::build so every later log call (KernelEnvLdrSystem, KernelCliSystem,
+// dlopen discovery, any system's on_start before LogSystem runs) goes into
+// g_capture_ring_ instead of being dropped by the null-logger gate in log.hpp.
+// No console sink — the App::startup() Schedule-Bootstrap block writes its
+// own progress table to stdout and must not be interleaved with log lines.
+void install_capture_logger() {
+    if (LogSystem::logger()) return;  // idempotent (tests / CLI tools)
+    g_capture_ring_ = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(2000);
+    auto boot = std::make_shared<spdlog::logger>("ase-server", g_capture_ring_);
+    boot->set_level(spdlog::level::trace);
+    boot->flush_on(spdlog::level::trace);
+    LogSystem::logger() = boot;
+}
+
+// Parse --log <+/-token...> from argv and feed the 3-axis filter engine.
+// Collects every consecutive token starting with '+' or '-' that follows
+// the "--log" flag, joined by spaces, exactly like KernelCliSystem did
+// before. Standalone (no Registry / no ECS) so it can run before
+// install_capture_logger — i.e. before any log::* call could fire.
+void finalize_logger_after_boot() {
+    auto& logger = LogSystem::logger();
+    if (!logger) {
+        g_capture_ring_.reset();
+        g_pending_console_sink_.reset();
+        g_pending_file_sink_.reset();
+        g_pending_http_ring_.reset();
+        g_pending_counting_.reset();
+        return;
+    }
+
+    // Attach all four real sinks to the logger in one go. Order matters
+    // only for the replay below (capture_ring → all four); after the
+    // ring is detached the order is irrelevant because every log call
+    // fans out to every sink.
+    std::vector<spdlog::sink_ptr> real_sinks;
+    if (g_pending_console_sink_) { real_sinks.push_back(g_pending_console_sink_); g_pending_console_sink_.reset(); }
+    if (g_pending_file_sink_)    { real_sinks.push_back(g_pending_file_sink_);    g_pending_file_sink_.reset(); }
+    if (g_pending_http_ring_)    { real_sinks.push_back(g_pending_http_ring_);    g_pending_http_ring_.reset(); }
+    if (g_pending_counting_)     { real_sinks.push_back(g_pending_counting_);     g_pending_counting_.reset(); }
+    for (auto& s : real_sinks) {
+        logger->sinks().push_back(s);
+    }
+
+    // Replay the capture-ring into exactly these four real sinks. Every
+    // captured log message reaches every real sink — no channel is missing
+    // any entry — so console, file, HTTP-ring and counting end up showing
+    // 100% identical content for the boot phase and beyond.
+    if (g_capture_ring_) {
+        auto captured = g_capture_ring_->last_raw();
+        for (auto& msg : captured) {
+            for (auto& s : real_sinks) {
+                s->log(msg);
+            }
+        }
+        logger->flush();
+
+        auto& sinks_vec = logger->sinks();
+        sinks_vec.erase(std::remove(sinks_vec.begin(), sinks_vec.end(), g_capture_ring_), sinks_vec.end());
+        g_capture_ring_.reset();
+    }
+}
+
+void parse_cli_filter_from_argv(int argc, char* argv[]) {
+    if (!argv) return;
+    for (int i = 1; i < argc; ++i) {
+        const char* a = argv[i];
+        if (!a || a[0] != '-' || a[1] != '-' || std::strcmp(a + 2, "log") != 0) continue;
+        char filter_buf[512] = {};
+        uint32_t pos = 0;
+        for (int j = i + 1; j < argc && argv[j] && (argv[j][0] == '+' || argv[j][0] == '-'); ++j) {
+            if (pos > 0 && pos < sizeof(filter_buf) - 1) filter_buf[pos++] = ' ';
+            for (const char* p = argv[j]; *p && pos < sizeof(filter_buf) - 1; ++p)
+                filter_buf[pos++] = *p;
+        }
+        filter_buf[pos] = '\0';
+        ase::log::filter::parse_log_filter(filter_buf);
+        return;
+    }
+}
+
 LogSystem::LogSystem(const std::string& name, const std::string& log_file)
     : logger_name_(name)
     , log_file_(log_file)
 {}
 
 void LogSystem::on_start(ecs::Registry& registry) {
-    if (g_logger_) return;
+    // LogConfig is authoritative — set by KernelCliSystem from argv[0] +
+    // ASE_HTTP_PORT. Guaranteed present because LogSystem runs after
+    // KernelCliSystem via run_after in LogModule::build. No fallback — a
+    // missing LogConfig is a boot bug and must fail fast (entt-assert).
+    auto& cfg = registry.ctx().get<LogConfig>();
+    std::string lbl = cfg.label[0] != '\0' ? std::string(cfg.label) : std::string("SERVER");
+    log_file_ = cfg.log_file;
 
-    // SSOT: LogConfig in ctx() determines log file path
-    // Server sets it before add_module<LogModule>: engine.log or world-{port}.log
-    // Default (from LogConfig): logs/engine.log
-    std::string lbl = "SERVER";
-    auto* cfg = registry.ctx().find<LogConfig>();
-    if (cfg) {
-        log_file_ = cfg->log_file;
-        if (cfg->label[0] != '\0') lbl = cfg->label;
-    } else if (log_file_.empty()) {
-        LogConfig defaults;
-        log_file_ = defaults.log_file;
-    }
-
-    // Calculate absolute log path relative to project root (not cwd!)
+    // Calculate absolute log path relative to project root (not cwd).
     std::filesystem::path absolute_log_path;
     if (std::filesystem::path(log_file_).is_relative()) {
         absolute_log_path = get_project_root() / log_file_;
     } else {
         absolute_log_path = log_file_;
     }
-
-    // Create logs directory
     if (absolute_log_path.has_parent_path()) {
         std::filesystem::create_directories(absolute_log_path.parent_path());
     }
     g_log_path_ = absolute_log_path.string();
-
-    // Truncate log file on startup
     if (std::filesystem::exists(absolute_log_path)) {
         std::filesystem::resize_file(absolute_log_path, 0);
     }
 
-    /** SERVER LOGGER (with [SERVER] prefix) */
-    // Console: "[2025-01-15 18:32:45.123] [Inf] [ASE] [SERVER] message"
+    // Build server sinks — console, per-server file, HTTP-ringbuffer, counting.
     auto server_console_formatter = std::make_unique<spdlog::pattern_formatter>();
     server_console_formatter->add_flag<ColoredLevelFlag>('*');
     server_console_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] [" + lbl + "] %v");
 
-    // File: plain text
     auto server_file_formatter = std::make_unique<spdlog::pattern_formatter>();
     server_file_formatter->add_flag<PlainLevelFlag>('#');
     server_file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] [" + lbl + "] %v");
@@ -164,32 +253,45 @@ void LogSystem::on_start(ecs::Registry& registry) {
     auto server_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(absolute_log_path.string(), true);
     server_file_sink->set_formatter(std::move(server_file_formatter));
 
-    // Ringbuffer sink (spdlog built-in, in RAM for /api/logs HTTP endpoint)
-    uint32_t ring_size = 500;
-    if (cfg) ring_size = cfg->ringbuffer_size;
-    g_ring_typed_ = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(ring_size);
+    // HTTP-endpoint ringbuffer (served by /api/logs). Separate from the
+    // transient capture-ring: this one stays for the process lifetime.
+    g_ring_typed_ = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(cfg.ringbuffer_size);
     g_ringbuffer_sink_ = g_ring_typed_;
     auto ring_formatter = std::make_unique<spdlog::pattern_formatter>();
     ring_formatter->add_flag<PlainLevelFlag>('#');
     ring_formatter->set_pattern("[%H:%M:%S.%e] [%#] %v");
     g_ringbuffer_sink_->set_formatter(std::move(ring_formatter));
 
-    // Counting sink (sequence numbers for delta polling)
     auto counting_sink = std::make_shared<CountingSink>(g_log_counter_);
 
-    std::vector<spdlog::sink_ptr> server_sinks{server_console_sink, server_file_sink, g_ringbuffer_sink_, counting_sink};
-    g_logger_ = std::make_shared<spdlog::logger>(logger_name_, server_sinks.begin(), server_sinks.end());
-    g_logger_->set_level(spdlog::level::debug);
+    // Park ALL real sinks. The logger keeps only the capture_ring during
+    // the Schedule-Bootstrap block — one single capture, no channel is
+    // live yet. finalize_logger_after_boot attaches all four at once and
+    // replays the capture_ring into each of them, so every sink ends up
+    // 100% identical.
+    g_pending_console_sink_ = server_console_sink;
+    g_pending_file_sink_    = server_file_sink;
+    g_pending_http_ring_    = g_ringbuffer_sink_;
+    g_pending_counting_     = counting_sink;
+
+    if (!g_logger_) {
+        // Safety net for callers that never invoked install_capture_logger
+        // (unit tests etc.): create a minimal logger on the real sinks.
+        std::vector<spdlog::sink_ptr> all{server_console_sink, server_file_sink, g_ringbuffer_sink_, counting_sink};
+        g_logger_ = std::make_shared<spdlog::logger>(logger_name_, all.begin(), all.end());
+    }
+    // else: leave the logger alone — it currently has [capture_ring] only,
+    // exactly right for the boot phase.
+    g_logger_->set_level(spdlog::level::trace);
     g_logger_->flush_on(spdlog::level::trace);
     spdlog::register_logger(g_logger_);
 
-    /** CLIENT LOGGER (without [SERVER] - client logs have their own prefix) */
-    // Console: "[2025-01-15 18:32:45.123] [Inf] [ASE] message"
+    // Client logger — dedicated pattern without the [LABEL] prefix. No
+    // capture-phase; client logs can only arrive after the network layer is up.
     auto client_console_formatter = std::make_unique<spdlog::pattern_formatter>();
     client_console_formatter->add_flag<ColoredLevelFlag>('*');
     client_console_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] %v");
 
-    // File: plain text
     auto client_file_formatter = std::make_unique<spdlog::pattern_formatter>();
     client_file_formatter->add_flag<PlainLevelFlag>('#');
     client_file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] %v");
@@ -203,7 +305,6 @@ void LogSystem::on_start(ecs::Registry& registry) {
     client_console_sink->set_color(spdlog::level::critical, "\033[38;5;168m");
     client_console_sink->set_formatter(std::move(client_console_formatter));
 
-    // Client logger shares file sink but with different formatter - need separate sink
     auto client_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(absolute_log_path.string(), false); // append
     client_file_sink->set_formatter(std::move(client_file_formatter));
 
@@ -212,7 +313,6 @@ void LogSystem::on_start(ecs::Registry& registry) {
     g_client_logger_->set_level(spdlog::level::debug);
     g_client_logger_->flush_on(spdlog::level::trace);
     spdlog::register_logger(g_client_logger_);
-
 }
 
 // Parse ringbuffer formatted string "[HH:MM:SS.mmm] [LVL] [SystemName] message" → LogEntry

@@ -143,6 +143,50 @@ inline void init(const std::string& name) {
 }
 
 /**
+ * @brief Install the capture-phase logger.
+ *
+ * Must be the FIRST call at the top of Kernel::build — it puts g_logger_
+ * into a well-defined state (a single ringbuffer sink, no console) so every
+ * log::* call made afterwards by kernel init, KernelEnvLdrSystem,
+ * KernelCliSystem, dlopen discovery and any pre-LogSystem::on_start code
+ * is captured instead of silently dropped by the null-logger gate.
+ *
+ * LogSystem::on_start later attaches the real sinks (console, per-server
+ * file, HTTP-endpoint ringbuffer, CountingSink) to the SAME logger, drains
+ * the captured entries into those new sinks (so they appear in the final
+ * log file with the correct [LABEL] and [DBG|INF|WRN|ERR|CRT|TRC] format),
+ * and removes the capture ring. One logger across the whole process.
+ */
+void install_capture_logger();
+
+/**
+ * @brief Parse the --log argument from argv and feed it into the 3-axis
+ *        filter engine (level/category/phase).
+ *
+ * Must run BEFORE install_capture_logger so that even capture-phase calls
+ * respect the user's filter. Pure global state mutation — no Registry,
+ * no logger dependency.
+ */
+void parse_cli_filter_from_argv(int argc, char* argv[]);
+
+/**
+ * @brief Finalize the logger after the Schedule-Bootstrap block.
+ *
+ * During the boot block the logger runs with only {capture-ring, file,
+ * HTTP-ring, counting} — the console sink is deliberately withheld so
+ * log lines from every system's on_start cannot interleave into the
+ * boot progress table on stdout. This call:
+ *   1. attaches the previously parked console sink to g_logger_
+ *   2. replays the capture-ring into every attached sink (console + file
+ *      + HTTP-ring + counting) so early log lines appear on BOTH stdout
+ *      and in logs/{server}-{port}.log with the correct [LABEL] format
+ *   3. detaches and drops the capture ring
+ *
+ * Idempotent: second call is a no-op.
+ */
+void finalize_logger_after_boot();
+
+/**
  * @brief Shutdown logger (for CLI tools)
  */
 inline void shutdown() {
