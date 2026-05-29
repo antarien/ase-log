@@ -31,7 +31,7 @@
  *   // ECS-based apps (LogSystem auto-initializes):
  *   ase::ecs::World world;
  *   world.start();  // LogSystem initializes here
- *   ase::log::info("Server started on port {}", 8080);
+ *   ase::log::info("Server started on port {}", 8090);
  *
  *   // CLI tools (manual initialization):
  *   ase::log::init("ase-codegen");

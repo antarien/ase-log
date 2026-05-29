@@ -48,7 +48,7 @@ ase::log::warn("Connection timeout");
 ase::log::error("Failed to load chunk");
 
 // Formatted logging (fmt style)
-ase::log::info("Server listening on port {}", 8080);
+ase::log::info("Server listening on port {}", 8090);
 ase::log::debug("Loaded {} chunks in {:.2f}ms", count, duration);
 ase::log::error("Entity {} not found in registry", entity_id);
 ```
@@ -175,7 +175,7 @@ class LogSystem : public ecs::System {
 
 **Server logs**:
 ```
-[2025-12-23 14:32:10.123] [ASE] [SERVER] [info] Server started on port 8080
+[2025-12-23 14:32:10.123] [ASE] [SERVER] [info] Server started on port 8090
 ```
 
 **Client logs** (forwarded from browser):
