@@ -1,6 +1,7 @@
 #include <ase/log/log.hpp>
 #include <ase/log/log_module.hpp>
 #include <ase/log/log_filter.hpp>
+#include <ase/containers/vector.hpp>
 #include <spdlog/pattern_formatter.h>
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/ringbuffer_sink.h>
@@ -157,7 +158,7 @@ void finalize_logger_after_boot() {
     // only for the replay below (capture_ring → all four); after the
     // ring is detached the order is irrelevant because every log call
     // fans out to every sink.
-    std::vector<spdlog::sink_ptr> real_sinks;
+    ase::containers::Vector<spdlog::sink_ptr> real_sinks;
     if (g_pending_console_sink_) { real_sinks.push_back(g_pending_console_sink_); g_pending_console_sink_.reset(); }
     if (g_pending_file_sink_)    { real_sinks.push_back(g_pending_file_sink_);    g_pending_file_sink_.reset(); }
     if (g_pending_http_ring_)    { real_sinks.push_back(g_pending_http_ring_);    g_pending_http_ring_.reset(); }
@@ -277,7 +278,7 @@ void LogSystem::on_start(ecs::Registry& registry) {
     if (!g_logger_) {
         // Safety net for callers that never invoked install_capture_logger
         // (unit tests etc.): create a minimal logger on the real sinks.
-        std::vector<spdlog::sink_ptr> all{server_console_sink, server_file_sink, g_ringbuffer_sink_, counting_sink};
+        ase::containers::Vector<spdlog::sink_ptr> all{server_console_sink, server_file_sink, g_ringbuffer_sink_, counting_sink};
         g_logger_ = std::make_shared<spdlog::logger>(logger_name_, all.begin(), all.end());
     }
     // else: leave the logger alone — it currently has [capture_ring] only,
@@ -308,7 +309,7 @@ void LogSystem::on_start(ecs::Registry& registry) {
     auto client_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(absolute_log_path.string(), false); // append
     client_file_sink->set_formatter(std::move(client_file_formatter));
 
-    std::vector<spdlog::sink_ptr> client_sinks{client_console_sink, client_file_sink};
+    ase::containers::Vector<spdlog::sink_ptr> client_sinks{client_console_sink, client_file_sink};
     g_client_logger_ = std::make_shared<spdlog::logger>("client", client_sinks.begin(), client_sinks.end());
     g_client_logger_->set_level(spdlog::level::debug);
     g_client_logger_->flush_on(spdlog::level::trace);
@@ -370,7 +371,7 @@ static LogEntry parse_ring_line(const std::string& line, uint32_t seq) {
     return entry;
 }
 
-std::vector<LogEntry> LogSystem::recent_logs(uint32_t since_seq) {
+ase::containers::Vector<LogEntry> LogSystem::recent_logs(uint32_t since_seq) {
     if (!g_ring_typed_) return {};
     auto all = g_ring_typed_->last_formatted();
     uint32_t seq = g_log_counter_.load();
@@ -390,7 +391,7 @@ std::vector<LogEntry> LogSystem::recent_logs(uint32_t since_seq) {
     }
 
     // Parse formatted strings to LogEntry, assign sequence numbers
-    std::vector<LogEntry> result;
+    ase::containers::Vector<LogEntry> result;
     result.reserve(count);
     uint32_t start_seq = seq - count + 1;
     for (uint32_t i = total - count; i < total; ++i) {

@@ -175,8 +175,10 @@ target_include_directories(ase-log-headers
 )
 target_compile_features(ase-log-headers INTERFACE cxx_std_20)
 # ase/log/log.hpp derives LogSystem from ecs::System — consumers need
-# ecs headers too. Re-exported through this facade.
-target_link_libraries(ase-log-headers INTERFACE ase::ecs)
+# ecs headers too. Re-exported through this facade. ase/log/log.hpp also
+# includes ase/containers/vector.hpp for the recent_logs() return type,
+# so the header-only containers include path is propagated too.
+target_link_libraries(ase-log-headers INTERFACE ase::ecs ase::containers)
 
 # Ensure codegen runs before compiling (checks taxonomy, regenerates if needed)
 add_dependencies(${PROJECT_NAME} ase-log-codegen)
@@ -205,6 +207,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE ASE_PROJECT_ROOT="${_ASE_BASE
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
         ase::ecs         # Layer 1 - System base class
+        ase::containers  # Layer 0 - Vector (LogEntry buffer in log.hpp public API)
         spdlog::spdlog   # External - Logging backend
     PRIVATE
         libcuckoo        # O(1) concurrent hashmap for log filter engine

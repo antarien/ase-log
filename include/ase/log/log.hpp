@@ -60,6 +60,7 @@
  */
 
 #include <ase/ecs/system.hpp>
+#include <ase/containers/vector.hpp>
 #include <ase/log/log_filter.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -107,7 +108,7 @@ public:
     static const std::string& log_path() { return g_log_path_; }
 
     // Recent logs from in-memory ringbuffer (for HTTP /api/logs endpoint)
-    static std::vector<LogEntry> recent_logs(uint32_t since_seq = 0);
+    static ase::containers::Vector<LogEntry> recent_logs(uint32_t since_seq = 0);
     static uint32_t log_counter() { return g_log_counter_.load(); }
 
 private:
