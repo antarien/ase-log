@@ -403,9 +403,43 @@ ase::containers::Vector<LogEntry> LogSystem::recent_logs(uint32_t since_seq) {
 void LogSystem::on_stop(ecs::Registry& /*registry*/) {
     if (g_logger_) {
         g_logger_->flush();
-        spdlog::drop_all();
-        g_logger_.reset();
     }
+    if (g_client_logger_) {
+        g_client_logger_->flush();
+    }
+    // Drop every logger from spdlog's global registry, then release ALL static sink/logger
+    // shared_ptrs HERE (controlled downstrap), so none survive into the C++ static-destruction
+    // phase at process exit. If any lingered, its exit-time destructor would race spdlog's own
+    // static registry destructor across translation units and free the same spdlog logger/sink
+    // twice — the "double free or corruption (!prev)" abort in __run_exit_handlers (valgrind-
+    // confirmed: blocks alloc'd in LogSystem::on_start, freed twice at exit). Resetting only
+    // g_logger_ (as before) left g_client_logger_ + every sink static dangling to exit.
+    // spdlog::shutdown() is a superset of drop_all(): it also resets the periodic flusher and
+    // the global thread pool, and tears down the registry singleton's internal state. drop_all()
+    // alone left spdlog-owned static state (a 45-byte logger-name block, valgrind-confirmed) to be
+    // freed in the C++ static-destruction phase at exit, racing the registry's own static dtor →
+    // the last remaining double-free. Releasing it HERE, in the controlled downstrap, removes it.
+    spdlog::shutdown();
+    g_logger_.reset();
+    g_client_logger_.reset();
+    g_ringbuffer_sink_.reset();
+    g_ring_typed_.reset();
+    g_capture_ring_.reset();
+    g_pending_console_sink_.reset();
+    g_pending_file_sink_.reset();
+    g_pending_http_ring_.reset();
+    g_pending_counting_.reset();
+
+    // Release the static std::string heap buffer too. ase-log is a STATIC lib embedded in the
+    // server binary AND in every dlopen'd .module (via ase::ecs → ase::log), so g_log_path_ has
+    // one merged instance but a per-translation-unit __cxa_atexit destructor registration. At
+    // process exit those destructors all run on the SAME merged string and free its buffer more
+    // than once ("double free or corruption" in __run_exit_handlers; the 45-byte block is this
+    // path). Emptying + shrinking it HERE (once, in the controlled downstrap) leaves every
+    // exit-time destructor a no-op on an empty string. Same reasoning as the sink/logger resets
+    // above — clear the merged static while the engine still runs, never at static destruction.
+    g_log_path_.clear();
+    g_log_path_.shrink_to_fit();
 }
 
 void LogSystem::tick(ecs::Registry& /*registry*/, float /*dt*/) {
