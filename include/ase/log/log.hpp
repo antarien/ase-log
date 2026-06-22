@@ -144,6 +144,20 @@ inline void init(const std::string& name) {
 }
 
 /**
+ * @brief Initialize a server-style logger for a standalone (non-ECS) binary.
+ * @param name     Logger name (e.g. "ase-edge")
+ * @param label    Tier tag for the [ASE] [<label>] prefix (e.g. "EDGE")
+ * @param log_file Optional file path (relative resolves to project root; empty = console only)
+ *
+ * Emits the SAME uniform console format as the ECS-based servers —
+ * [ts] [LVL] [ASE] [<label>] message — but without ECS/registry/kernel/capture-ring, so
+ * customer-side tools (the edge daemon) log identically to engine/replica/world. Honours the
+ * 3-axis filter set by parse_cli_filter_from_argv. Idempotent (no-op if a logger already exists).
+ * Defined in log_sys.cpp (it reuses the file-scope Colored/PlainLevelFlag formatters).
+ */
+void init_server_standalone(const std::string& name, const std::string& label, const std::string& log_file = "");
+
+/**
  * @brief Install the capture-phase logger.
  *
  * Must be the FIRST call at the top of Kernel::build — it puts g_logger_

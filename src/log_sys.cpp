@@ -448,4 +448,51 @@ void LogSystem::tick(ecs::Registry& /*registry*/, float /*dt*/) {
 
 // Register in Startup schedule (first!)
 
+// Standalone server-style logger for non-ECS binaries (edge daemon). Mirrors the LogSystem::on_start
+// console+file formatters byte-for-byte so customer-side tools log identically to engine/replica/world,
+// but with no capture-ring/CountingSink/HTTP-ring (no /api/logs consumer) and no registry dependency.
+void init_server_standalone(const std::string& name, const std::string& label, const std::string& log_file) {
+    if (LogSystem::logger()) return;  // idempotent — matches inline init() guard
+
+    auto console_formatter = std::make_unique<spdlog::pattern_formatter>();
+    console_formatter->add_flag<ColoredLevelFlag>('*');
+    console_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] [" + label + "] %v");
+
+    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    console_sink->set_color(spdlog::level::trace, "\033[38;5;243m");
+    console_sink->set_color(spdlog::level::debug, "\033[38;5;67m");
+    console_sink->set_color(spdlog::level::info, "\033[38;5;71m");
+    console_sink->set_color(spdlog::level::warn, "\033[38;5;179m");
+    console_sink->set_color(spdlog::level::err, "\033[38;5;167m");
+    console_sink->set_color(spdlog::level::critical, "\033[38;5;168m");
+    console_sink->set_formatter(std::move(console_formatter));
+
+    ase::containers::Vector<spdlog::sink_ptr> sinks{console_sink};
+
+    if (!log_file.empty()) {
+        std::filesystem::path absolute_log_path;
+        if (std::filesystem::path(log_file).is_relative()) {
+            absolute_log_path = get_project_root() / log_file;
+        } else {
+            absolute_log_path = log_file;
+        }
+        if (absolute_log_path.has_parent_path()) {
+            std::filesystem::create_directories(absolute_log_path.parent_path());
+        }
+        if (std::filesystem::exists(absolute_log_path)) {
+            std::filesystem::resize_file(absolute_log_path, 0);
+        }
+        auto file_formatter = std::make_unique<spdlog::pattern_formatter>();
+        file_formatter->add_flag<PlainLevelFlag>('#');
+        file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] [" + label + "] %v");
+        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(absolute_log_path.string(), true);
+        file_sink->set_formatter(std::move(file_formatter));
+        sinks.push_back(file_sink);
+    }
+
+    LogSystem::logger() = std::make_shared<spdlog::logger>(name, sinks.begin(), sinks.end());
+    LogSystem::logger()->set_level(spdlog::level::trace);
+    LogSystem::logger()->flush_on(spdlog::level::trace);
+}
+
 }  // namespace ase::log
