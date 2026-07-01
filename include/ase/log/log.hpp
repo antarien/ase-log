@@ -158,6 +158,35 @@ inline void init(const std::string& name) {
 void init_server_standalone(const std::string& name, const std::string& label, const std::string& log_file = "");
 
 /**
+ * @brief Callback that receives one fully-formatted log line (for a TUI log pane).
+ * @param line   Pointer to the formatted line bytes (NOT null-terminated).
+ * @param len    Number of bytes in the line.
+ * @param level  spdlog level index (0 trace .. 5 critical) for optional per-level handling.
+ * @param user   Opaque user pointer passed through from init_tui_standalone.
+ *
+ * The line is byte-identical to the tier console line (gray timestamp, colored 3-char level,
+ * [ASE] [<label>] prefix). Invoked under the sink lock and possibly from a worker thread, so the
+ * callback must only enqueue the line (never touch the terminal from here).
+ */
+using TuiLogCallback = void (*)(const char* line, uint32_t len, int level, void* user);
+
+/**
+ * @brief Initialize a standalone logger for a full-screen TUI tool (tools/ase-cli).
+ * @param name     Logger name (e.g. "ase-cli")
+ * @param label    Tier tag for the [ASE] [<label>] prefix (e.g. "CLI")
+ * @param log_file Optional file path (relative resolves to project root; empty = no file)
+ * @param callback Receives every formatted line for the caller's log pane
+ * @param user     Opaque pointer handed back to the callback
+ *
+ * Builds a plain [LABEL][LVL] file sink (byte-identical to init_server_standalone's file sink) plus a
+ * colored callback sink that feeds the caller's pane, and deliberately NO stdout console sink, so raw
+ * ANSI never corrupts the alternate-screen TUI. Honours the 3-axis filter. Idempotent (no-op if a
+ * logger already exists). Defined in log_sys.cpp (reuses the file-scope Colored/PlainLevelFlag flags).
+ */
+void init_tui_standalone(const std::string& name, const std::string& label, const std::string& log_file,
+                         TuiLogCallback callback, void* user);
+
+/**
  * @brief Install the capture-phase logger.
  *
  * Must be the FIRST call at the top of Kernel::build — it puts g_logger_

@@ -22,6 +22,25 @@ private:
     std::atomic<uint32_t>& counter_;
 };
 
+// TUI callback sink — forwards each formatted line to a C callback (tools/ase-cli's log pane).
+// Same base_sink<std::mutex> shape as CountingSink; formats through the sink's own formatter so the
+// pane text is byte-identical to the console/file line.
+class TuiCallbackSink : public spdlog::sinks::base_sink<std::mutex> {
+public:
+    TuiCallbackSink(TuiLogCallback callback, void* user) : callback_(callback), user_(user) {}
+protected:
+    void sink_it_(const spdlog::details::log_msg& msg) override {
+        if (callback_ == nullptr) return;
+        spdlog::memory_buf_t buf;
+        formatter_->format(msg, buf);
+        callback_(buf.data(), static_cast<uint32_t>(buf.size()), static_cast<int>(msg.level), user_);
+    }
+    void flush_() override {}
+private:
+    TuiLogCallback callback_;
+    void* user_;
+};
+
 // Get ASE project root directory (where logs/ should be created)
 // SSOT: ASE_PROJECT_ROOT compile define from CMake (_ASE_BASE),
 // resolves correctly for both central and standalone subgit builds.
@@ -489,6 +508,49 @@ void init_server_standalone(const std::string& name, const std::string& label, c
         file_sink->set_formatter(std::move(file_formatter));
         sinks.push_back(file_sink);
     }
+
+    LogSystem::logger() = std::make_shared<spdlog::logger>(name, sinks.begin(), sinks.end());
+    LogSystem::logger()->set_level(spdlog::level::trace);
+    LogSystem::logger()->flush_on(spdlog::level::trace);
+}
+
+// Standalone logger for a full-screen TUI tool (tools/ase-cli): a plain [LABEL] file sink plus a
+// colored TUI-callback sink (the caller's log pane), and NO stdout console sink, so raw ANSI never
+// corrupts the alternate screen. File formatter and path resolution mirror init_server_standalone
+// byte-for-byte; the callback line matches the tier console line (colored 3-char level).
+void init_tui_standalone(const std::string& name, const std::string& label, const std::string& log_file,
+                         TuiLogCallback callback, void* user) {
+    if (LogSystem::logger()) return;  // idempotent — matches init_server_standalone
+
+    ase::containers::Vector<spdlog::sink_ptr> sinks;
+
+    if (!log_file.empty()) {
+        std::filesystem::path absolute_log_path;
+        if (std::filesystem::path(log_file).is_relative()) {
+            absolute_log_path = get_project_root() / log_file;
+        } else {
+            absolute_log_path = log_file;
+        }
+        if (absolute_log_path.has_parent_path()) {
+            std::filesystem::create_directories(absolute_log_path.parent_path());
+        }
+        if (std::filesystem::exists(absolute_log_path)) {
+            std::filesystem::resize_file(absolute_log_path, 0);
+        }
+        auto file_formatter = std::make_unique<spdlog::pattern_formatter>();
+        file_formatter->add_flag<PlainLevelFlag>('#');
+        file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] [" + label + "] %v");
+        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(absolute_log_path.string(), true);
+        file_sink->set_formatter(std::move(file_formatter));
+        sinks.push_back(file_sink);
+    }
+
+    auto tui_formatter = std::make_unique<spdlog::pattern_formatter>();
+    tui_formatter->add_flag<ColoredLevelFlag>('*');
+    tui_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] [" + label + "] %v");
+    auto tui_sink = std::make_shared<TuiCallbackSink>(callback, user);
+    tui_sink->set_formatter(std::move(tui_formatter));
+    sinks.push_back(tui_sink);
 
     LogSystem::logger() = std::make_shared<spdlog::logger>(name, sinks.begin(), sinks.end());
     LogSystem::logger()->set_level(spdlog::level::trace);
