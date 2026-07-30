@@ -123,6 +123,79 @@ private:
 };
 
 // ============================================================================
+// Log rotation quota — SSOT for every log-writing binary
+// ============================================================================
+
+/**
+ * Rotation quota shared by all tiers, the edge daemon and the operator CLI.
+ *
+ * The SSOT is the plain-text file <project-root>/logs/quota.conf, read once when a binary
+ * builds its file sink. Every log file rotates at max_bytes and keeps max_files older
+ * generations (world-9001.log, world-9001.1.log, ...), so no log can grow without bound in
+ * production. A process started before a quota change keeps the quota it read at startup.
+ */
+
+// Quota applied when logs/quota.conf is absent. 50 MiB per file with 3 kept generations bounds
+// one tier at 200 MiB, so five logging tiers cannot exceed 1 GiB no matter how long they run.
+inline constexpr uint64_t kDefaultLogMaxBytes = 52428800ULL;  // 50 MiB
+inline constexpr uint32_t kDefaultLogMaxFiles = 3u;
+
+// Hard floor for a configured quota. A max_bytes of zero makes spdlog's rotating sink throw, and
+// anything below one MiB would rotate mid-burst and shred a single stack trace across generations.
+inline constexpr uint64_t kMinLogMaxBytes = 1048576ULL;  // 1 MiB
+
+// Hard ceiling for kept generations. spdlog's rotating sink THROWS above 200000, and that throw
+// happens inside the sink constructor during logger init — a place no ASE binary wraps in a catch,
+// so it would reach std::terminate and every tier plus the operator console would die at startup.
+// The bound is enforced in the SSOT itself (writer AND reader), so neither a mistyped console
+// command nor a hand-edited quota.conf can turn a log setting into an unbootable stack. 100 kept
+// generations is already far past any diagnostic need.
+inline constexpr uint32_t kMaxLogMaxFiles = 100u;
+
+// Retention for the log directory, swept when a binary builds its file sink. Size rotation bounds
+// each STREAM; this bounds the NUMBER of streams, which grows by itself — one file per port a tier is
+// ever started on, one per operator console run. Two weeks is far past any process lifetime, so a
+// file a running binary still writes can never be caught by the sweep.
+inline constexpr long kLogRetentionDays = 14;
+
+struct LogQuota {
+    uint64_t max_bytes = kDefaultLogMaxBytes;  // size at which the active file rotates
+    uint32_t max_files = kDefaultLogMaxFiles;  // kept generations besides the active file
+};
+
+/** @brief Absolute path of the log directory (<project-root>/logs). */
+[[nodiscard]] std::string log_dir_path();
+
+/** @brief Absolute path of the quota SSOT (<project-root>/logs/quota.conf). */
+[[nodiscard]] std::string log_quota_path();
+
+/**
+ * @brief Read the rotation quota from the SSOT file.
+ * @return The configured quota, or the kDefaultLog* values when the file is absent or unreadable.
+ */
+[[nodiscard]] LogQuota log_quota();
+
+/**
+ * @brief Read the rotation quota from an EXPLICIT log directory.
+ * @param dir Directory that holds the quota.conf to read.
+ * @return The configured quota, or the kDefaultLog* values when the file is absent or unreadable.
+ *
+ * For binaries whose log directory is not the build tree's logs/. The edge daemon is downloaded as
+ * a PREBUILT binary from the dist server; the customer never builds anything, so the
+ * ASE_PROJECT_ROOT compiled into that binary is the BUILD MACHINE's path and exists nowhere on the
+ * customer's disk. The daemon logs to <HOME>/.ase-edge/logs and must read its quota from THERE
+ * (finding none and using the defaults), never from that foreign build path.
+ */
+[[nodiscard]] LogQuota log_quota_in(const std::string& dir);
+
+/**
+ * @brief Write the rotation quota to the SSOT file, creating the log directory if needed.
+ * @param quota Values to persist; max_bytes is clamped up to kMinLogMaxBytes.
+ * @return false when the file could not be written.
+ */
+bool set_log_quota(const LogQuota& quota);
+
+// ============================================================================
 // CLI Initialization (for tools without ECS World)
 // ============================================================================
 

@@ -197,8 +197,14 @@ logs/antares.log
 
 Monitor in real-time:
 ```bash
-tail -f logs/antares.log
+tail -F logs/antares.log
 ```
+
+`-F`, not `-f`: log files ROTATE at the quota (`logs/quota.conf`, default 50 MiB with 3 kept
+generations). Rotation renames the file and opens a new one at the same path, so `tail -f` — which
+follows the file DESCRIPTOR — keeps reading the renamed `…1.log` and goes silent without any error.
+`-F` follows the NAME and picks the new file up. Silence from a `-f` monitor means rotation, not
+"nothing happened".
 
 ### Lifecycle
 

@@ -5,9 +5,12 @@
 #include <spdlog/pattern_formatter.h>
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/ringbuffer_sink.h>
+#include <spdlog/sinks/rotating_file_sink.h>
 #include <algorithm>
+#include <chrono>     // std::chrono::hours (retention cutoff)
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 
 namespace ase::log {
 
@@ -52,6 +55,126 @@ static std::filesystem::path get_project_root() {
     return std::filesystem::current_path();
 #endif
 }
+
+/**
+ * Rotation quota, SSOT file <project-root>/logs/quota.conf.
+ *
+ * Every file sink in this translation unit is a rotating sink fed by these values, so no log file
+ * of any tier, of the edge daemon or of the operator CLI can grow without bound. The file is a
+ * two-key plain-text format ("max_bytes <n>" and "max_files <n>"), parsed with plain stream reads.
+ */
+
+// Keys of the quota SSOT file, shared by the reader and the writer so the two can never drift.
+static constexpr const char* kQuotaKeyMaxBytes = "max_bytes";
+static constexpr const char* kQuotaKeyMaxFiles = "max_files";
+
+std::string log_dir_path() {
+    return (get_project_root() / "logs").string();
+}
+
+std::string log_quota_path() {
+    return (get_project_root() / "logs" / "quota.conf").string();
+}
+
+LogQuota log_quota() {
+    return log_quota_in(log_dir_path());
+}
+
+LogQuota log_quota_in(const std::string& dir) {
+    LogQuota quota;  // starts at the kDefaultLog* values
+    std::ifstream in(dir + "/quota.conf");
+    if (!in.is_open()) {
+        return quota;  // no SSOT file there: the documented defaults apply
+    }
+    std::string key;
+    while (in >> key) {
+        if (key == kQuotaKeyMaxBytes) {
+            uint64_t value = 0;
+            if (in >> value && value >= kMinLogMaxBytes) {
+                quota.max_bytes = value;
+            }
+        } else if (key == kQuotaKeyMaxFiles) {
+            uint32_t value = 0;
+            if (in >> value) {
+                // Clamped on READ as well: a hand-edited quota.conf must never be able to push
+                // max_files past what the rotating sink accepts, because that throw would abort
+                // startup for every binary that reads this file.
+                quota.max_files = (value > kMaxLogMaxFiles) ? kMaxLogMaxFiles : value;
+            }
+        }
+    }
+    return quota;
+}
+
+bool set_log_quota(const LogQuota& quota) {
+    std::error_code ec;
+    std::filesystem::create_directories(log_dir_path(), ec);
+    std::ofstream out(log_quota_path(), std::ios::trunc);
+    if (!out.is_open()) {
+        return false;
+    }
+    const uint64_t bytes = (quota.max_bytes < kMinLogMaxBytes) ? kMinLogMaxBytes : quota.max_bytes;
+    const uint32_t files = (quota.max_files > kMaxLogMaxFiles) ? kMaxLogMaxFiles : quota.max_files;
+    out << kQuotaKeyMaxBytes << ' ' << bytes << '\n'
+        << kQuotaKeyMaxFiles << ' ' << files << '\n';
+    return out.good();
+}
+
+namespace {
+
+/**
+ * Retention sweep over a log directory, run when a binary builds its file sink.
+ *
+ * Size rotation bounds each log STREAM, but it cannot bound the NUMBER of streams, and that number
+ * grows on its own: one file per port a tier is ever started on (dist-9080 through dist-9093 all
+ * exist), plus one per operator console run (cli-<pid>.log). Without this sweep the directory grows
+ * without end even though no single file does.
+ *
+ * The cutoff is deliberately far past any process lifetime, so a file a running binary still writes
+ * can never be caught: anything untouched for two weeks has no writer left.
+ */
+void prune_log_dir(const std::filesystem::path& dir) {
+    std::error_code ec;
+    const auto cutoff = std::filesystem::file_time_type::clock::now() -
+                        std::chrono::hours(24 * kLogRetentionDays);
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (ec) {
+            return;
+        }
+        if (entry.path().extension() != ".log" || !entry.is_regular_file(ec)) {
+            continue;
+        }
+        std::error_code time_ec;
+        const auto written = std::filesystem::last_write_time(entry.path(), time_ec);
+        if (time_ec || written >= cutoff) {
+            continue;
+        }
+        std::error_code remove_ec;
+        std::filesystem::remove(entry.path(), remove_ec);
+    }
+}
+
+/**
+ * Build the one file-sink shape used everywhere: rotate at the configured size, keep the configured
+ * number of generations, and rotate once on open so each process start begins a fresh file WITHOUT
+ * destroying the previous run (the old content becomes name.1.log). rotate_on_open only fires when
+ * the existing file is non-empty, so a restart on an untouched file adds no empty generation.
+ *
+ * The quota is read from the sink's OWN directory, not from a compile-time path: the edge daemon
+ * runs as a prebuilt binary on machines where the build tree does not exist, and it must find its
+ * own quota (or none, and use the defaults) rather than probing a foreign path.
+ */
+std::shared_ptr<spdlog::sinks::sink> make_rotating_file_sink(const std::string& path) {
+    const std::filesystem::path file_path(path);
+    const std::string dir = file_path.has_parent_path() ? file_path.parent_path().string()
+                                                        : log_dir_path();
+    prune_log_dir(dir);
+    const LogQuota quota = log_quota_in(dir);
+    return std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+        path, static_cast<std::size_t>(quota.max_bytes), static_cast<std::size_t>(quota.max_files), true);
+}
+
+}  // namespace
 
 // Custom flag for colored 3-character log level (matching ecs.cpp boot_log)
 class ColoredLevelFlag : public spdlog::custom_flag_formatter {
@@ -248,9 +371,10 @@ void LogSystem::on_start(ecs::Registry& registry) {
         std::filesystem::create_directories(absolute_log_path.parent_path());
     }
     g_log_path_ = absolute_log_path.string();
-    if (std::filesystem::exists(absolute_log_path)) {
-        std::filesystem::resize_file(absolute_log_path, 0);
-    }
+    // NO truncate here. The rotating sink below opens with rotate_on_open, which turns the previous
+    // run into <name>.1.log instead of erasing it. Emptying the file first would make that rotation
+    // a no-op (it only fires on a non-empty file) and would destroy the previous run's evidence on
+    // every restart — including the crash that caused the restart.
 
     // Build server sinks — console, per-server file, HTTP-ringbuffer, counting.
     auto server_console_formatter = std::make_unique<spdlog::pattern_formatter>();
@@ -270,7 +394,7 @@ void LogSystem::on_start(ecs::Registry& registry) {
     server_console_sink->set_color(spdlog::level::critical, "\033[38;5;168m");
     server_console_sink->set_formatter(std::move(server_console_formatter));
 
-    auto server_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(absolute_log_path.string(), true);
+    auto server_file_sink = make_rotating_file_sink(absolute_log_path.string());
     server_file_sink->set_formatter(std::move(server_file_formatter));
 
     // HTTP-endpoint ringbuffer (served by /api/logs). Separate from the
@@ -312,10 +436,6 @@ void LogSystem::on_start(ecs::Registry& registry) {
     client_console_formatter->add_flag<ColoredLevelFlag>('*');
     client_console_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] %v");
 
-    auto client_file_formatter = std::make_unique<spdlog::pattern_formatter>();
-    client_file_formatter->add_flag<PlainLevelFlag>('#');
-    client_file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] %v");
-
     auto client_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     client_console_sink->set_color(spdlog::level::trace, "\033[38;5;243m");
     client_console_sink->set_color(spdlog::level::debug, "\033[38;5;67m");
@@ -325,10 +445,11 @@ void LogSystem::on_start(ecs::Registry& registry) {
     client_console_sink->set_color(spdlog::level::critical, "\033[38;5;168m");
     client_console_sink->set_formatter(std::move(client_console_formatter));
 
-    auto client_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(absolute_log_path.string(), false); // append
-    client_file_sink->set_formatter(std::move(client_file_formatter));
-
-    ase::containers::Vector<spdlog::sink_ptr> client_sinks{client_console_sink, client_file_sink};
+    // The client logger SHARES the server's rotating file sink instead of opening a second handle on
+    // the same path. Two rotating sinks on one file would rename each other's generations and write
+    // through independent offsets, corrupting both. Sharing gives one writer, one rotation state and
+    // one lock; the client console sink above keeps its own [LABEL]-free pattern.
+    ase::containers::Vector<spdlog::sink_ptr> client_sinks{client_console_sink, server_file_sink};
     g_client_logger_ = std::make_shared<spdlog::logger>("client", client_sinks.begin(), client_sinks.end());
     g_client_logger_->set_level(spdlog::level::debug);
     g_client_logger_->flush_on(spdlog::level::trace);
@@ -498,13 +619,13 @@ void init_server_standalone(const std::string& name, const std::string& label, c
         if (absolute_log_path.has_parent_path()) {
             std::filesystem::create_directories(absolute_log_path.parent_path());
         }
-        if (std::filesystem::exists(absolute_log_path)) {
-            std::filesystem::resize_file(absolute_log_path, 0);
-        }
+        // NO truncate: the rotating sink opens with rotate_on_open, turning the previous run into
+        // name.1.log instead of erasing it. Emptying the file first would disable that rotation,
+        // because it only fires on a non-empty file.
         auto file_formatter = std::make_unique<spdlog::pattern_formatter>();
         file_formatter->add_flag<PlainLevelFlag>('#');
         file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] [" + label + "] %v");
-        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(absolute_log_path.string(), true);
+        auto file_sink = make_rotating_file_sink(absolute_log_path.string());
         file_sink->set_formatter(std::move(file_formatter));
         sinks.push_back(file_sink);
     }
@@ -534,13 +655,13 @@ void init_tui_standalone(const std::string& name, const std::string& label, cons
         if (absolute_log_path.has_parent_path()) {
             std::filesystem::create_directories(absolute_log_path.parent_path());
         }
-        if (std::filesystem::exists(absolute_log_path)) {
-            std::filesystem::resize_file(absolute_log_path, 0);
-        }
+        // NO truncate: the rotating sink opens with rotate_on_open, turning the previous run into
+        // name.1.log instead of erasing it. Emptying the file first would disable that rotation,
+        // because it only fires on a non-empty file.
         auto file_formatter = std::make_unique<spdlog::pattern_formatter>();
         file_formatter->add_flag<PlainLevelFlag>('#');
         file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] [" + label + "] %v");
-        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(absolute_log_path.string(), true);
+        auto file_sink = make_rotating_file_sink(absolute_log_path.string());
         file_sink->set_formatter(std::move(file_formatter));
         sinks.push_back(file_sink);
     }
