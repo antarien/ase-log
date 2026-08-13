@@ -8,6 +8,7 @@
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <algorithm>
 #include <chrono>     // std::chrono::hours (retention cutoff)
+#include <cstdio>     // std::fprintf (der eine Startfehler, wenn kein Logpfad kam)
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -257,10 +258,11 @@ static std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> g_capture_ring_ = null
 // the capture_ring, so every log line (including those from every system's
 // on_start) goes into the same single destination — no channel is live, no
 // channel misses entries, no interleaving with the stdout boot progress
-// table. finalize_logger_after_boot then attaches all four real sinks in
+// table. finalize_logger_after_boot then attaches all three real sinks in
 // one go and replays the capture_ring into all of them so every sink
-// (console, file, HTTP-ring, counting) contains 100% identical content.
-static std::shared_ptr<spdlog::sinks::sink> g_pending_console_sink_ = nullptr;
+// (file, HTTP-ring, counting) contains 100% identical content. There is NO
+// stdout sink (Betreiber-Entscheid 2026-08-11): the log directory is the
+// single destination, a console views it as tail on the file.
 static std::shared_ptr<spdlog::sinks::sink> g_pending_file_sink_    = nullptr;
 static std::shared_ptr<spdlog::sinks::sink> g_pending_http_ring_    = nullptr;
 static std::shared_ptr<spdlog::sinks::sink> g_pending_counting_     = nullptr;
@@ -289,19 +291,17 @@ void finalize_logger_after_boot() {
     auto& logger = LogSystem::logger();
     if (!logger) {
         g_capture_ring_.reset();
-        g_pending_console_sink_.reset();
         g_pending_file_sink_.reset();
         g_pending_http_ring_.reset();
         g_pending_counting_.reset();
         return;
     }
 
-    // Attach all four real sinks to the logger in one go. Order matters
+    // Attach all three real sinks to the logger in one go. Order matters
     // only for the replay below (capture_ring → all four); after the
     // ring is detached the order is irrelevant because every log call
     // fans out to every sink.
     ase::containers::Vector<spdlog::sink_ptr> real_sinks;
-    if (g_pending_console_sink_) { real_sinks.push_back(g_pending_console_sink_); g_pending_console_sink_.reset(); }
     if (g_pending_file_sink_)    { real_sinks.push_back(g_pending_file_sink_);    g_pending_file_sink_.reset(); }
     if (g_pending_http_ring_)    { real_sinks.push_back(g_pending_http_ring_);    g_pending_http_ring_.reset(); }
     if (g_pending_counting_)     { real_sinks.push_back(g_pending_counting_);     g_pending_counting_.reset(); }
@@ -309,9 +309,9 @@ void finalize_logger_after_boot() {
         logger->sinks().push_back(s);
     }
 
-    // Replay the capture-ring into exactly these four real sinks. Every
+    // Replay the capture-ring into exactly these three real sinks. Every
     // captured log message reaches every real sink — no channel is missing
-    // any entry — so console, file, HTTP-ring and counting end up showing
+    // any entry — so file, HTTP-ring and counting end up showing
     // 100% identical content for the boot phase and beyond.
     if (g_capture_ring_) {
         auto captured = g_capture_ring_->last_raw();
@@ -376,23 +376,22 @@ void LogSystem::on_start(ecs::Registry& registry) {
     // a no-op (it only fires on a non-empty file) and would destroy the previous run's evidence on
     // every restart — including the crash that caused the restart.
 
-    // Build server sinks — console, per-server file, HTTP-ringbuffer, counting.
-    auto server_console_formatter = std::make_unique<spdlog::pattern_formatter>();
-    server_console_formatter->add_flag<ColoredLevelFlag>('*');
-    server_console_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] [" + lbl + "] %v");
-
+    // Build server sinks — per-server file, HTTP-ringbuffer, counting.
+    //
+    // KEIN STDOUT-SINK (Betreiber-Entscheid 2026-08-11): alle Logs leben AUSSCHLIESSLICH im
+    // Logverzeichnis, rotiert vom EINEN Datei-Sink. Der fruehere stdout_color_sink war eine nie
+    // entfernte Parallelausgabe: unter systemd bog StandardOutput=append denselben Strom in eine
+    // zweite, rotationslose Datei - der Deskriptor folgte beim spdlog-Rename dem Inode in die
+    // .1/.2/.3 und schrieb dort 83 GB Phantom (gemessen 2026-08-11, Platte 100%). Eine Konsole
+    // liest das Log als tail auf der Datei - dieselben Bytes, ein Schreibweg.
+    // VOLLES FARB-FORMAT IN DER DATEI (Betreiber-Entscheid 2026-08-11): die Konsole IST ein
+    // tail auf diese Datei, und die Farben sind Systemsprache - Level-Farbe und grauer
+    // Zeitstempel gehoeren deshalb hierher, sonst saehe das Fenster anders aus als zuvor.
+    // Die Modul-Inline-Farben (Teil von %v) standen ohnehin immer in der Datei; jetzt ist
+    // das Format durchgehend farbcodiert.
     auto server_file_formatter = std::make_unique<spdlog::pattern_formatter>();
-    server_file_formatter->add_flag<PlainLevelFlag>('#');
-    server_file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] [" + lbl + "] %v");
-
-    auto server_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    server_console_sink->set_color(spdlog::level::trace, "\033[38;5;243m");
-    server_console_sink->set_color(spdlog::level::debug, "\033[38;5;67m");
-    server_console_sink->set_color(spdlog::level::info, "\033[38;5;71m");
-    server_console_sink->set_color(spdlog::level::warn, "\033[38;5;179m");
-    server_console_sink->set_color(spdlog::level::err, "\033[38;5;167m");
-    server_console_sink->set_color(spdlog::level::critical, "\033[38;5;168m");
-    server_console_sink->set_formatter(std::move(server_console_formatter));
+    server_file_formatter->add_flag<ColoredLevelFlag>('*');
+    server_file_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] [" + lbl + "] %v");
 
     auto server_file_sink = make_rotating_file_sink(absolute_log_path.string());
     server_file_sink->set_formatter(std::move(server_file_formatter));
@@ -413,7 +412,6 @@ void LogSystem::on_start(ecs::Registry& registry) {
     // live yet. finalize_logger_after_boot attaches all four at once and
     // replays the capture_ring into each of them, so every sink ends up
     // 100% identical.
-    g_pending_console_sink_ = server_console_sink;
     g_pending_file_sink_    = server_file_sink;
     g_pending_http_ring_    = g_ringbuffer_sink_;
     g_pending_counting_     = counting_sink;
@@ -421,7 +419,7 @@ void LogSystem::on_start(ecs::Registry& registry) {
     if (!g_logger_) {
         // Safety net for callers that never invoked install_capture_logger
         // (unit tests etc.): create a minimal logger on the real sinks.
-        ase::containers::Vector<spdlog::sink_ptr> all{server_console_sink, server_file_sink, g_ringbuffer_sink_, counting_sink};
+        ase::containers::Vector<spdlog::sink_ptr> all{server_file_sink, g_ringbuffer_sink_, counting_sink};
         g_logger_ = std::make_shared<spdlog::logger>(logger_name_, all.begin(), all.end());
     }
     // else: leave the logger alone — it currently has [capture_ring] only,
@@ -430,26 +428,12 @@ void LogSystem::on_start(ecs::Registry& registry) {
     g_logger_->flush_on(spdlog::level::trace);
     spdlog::register_logger(g_logger_);
 
-    // Client logger — dedicated pattern without the [LABEL] prefix. No
-    // capture-phase; client logs can only arrive after the network layer is up.
-    auto client_console_formatter = std::make_unique<spdlog::pattern_formatter>();
-    client_console_formatter->add_flag<ColoredLevelFlag>('*');
-    client_console_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] %v");
-
-    auto client_console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    client_console_sink->set_color(spdlog::level::trace, "\033[38;5;243m");
-    client_console_sink->set_color(spdlog::level::debug, "\033[38;5;67m");
-    client_console_sink->set_color(spdlog::level::info, "\033[38;5;71m");
-    client_console_sink->set_color(spdlog::level::warn, "\033[38;5;179m");
-    client_console_sink->set_color(spdlog::level::err, "\033[38;5;167m");
-    client_console_sink->set_color(spdlog::level::critical, "\033[38;5;168m");
-    client_console_sink->set_formatter(std::move(client_console_formatter));
-
-    // The client logger SHARES the server's rotating file sink instead of opening a second handle on
-    // the same path. Two rotating sinks on one file would rename each other's generations and write
-    // through independent offsets, corrupting both. Sharing gives one writer, one rotation state and
-    // one lock; the client console sink above keeps its own [LABEL]-free pattern.
-    ase::containers::Vector<spdlog::sink_ptr> client_sinks{client_console_sink, server_file_sink};
+    // Client logger — no stdout sink here either (Betreiber-Entscheid 2026-08-11, ein
+    // Schreibweg). The client logger SHARES the server's rotating file sink instead of opening a
+    // second handle on the same path. Two rotating sinks on one file would rename each other's
+    // generations and write through independent offsets, corrupting both. Sharing gives one
+    // writer, one rotation state and one lock.
+    ase::containers::Vector<spdlog::sink_ptr> client_sinks{server_file_sink};
     g_client_logger_ = std::make_shared<spdlog::logger>("client", client_sinks.begin(), client_sinks.end());
     g_client_logger_->set_level(spdlog::level::debug);
     g_client_logger_->flush_on(spdlog::level::trace);
@@ -565,7 +549,6 @@ void LogSystem::on_stop(ecs::Registry& /*registry*/) {
     g_ringbuffer_sink_.reset();
     g_ring_typed_.reset();
     g_capture_ring_.reset();
-    g_pending_console_sink_.reset();
     g_pending_file_sink_.reset();
     g_pending_http_ring_.reset();
     g_pending_counting_.reset();
@@ -589,27 +572,28 @@ void LogSystem::tick(ecs::Registry& /*registry*/, float /*dt*/) {
 // Register in Startup schedule (first!)
 
 // Standalone server-style logger for non-ECS binaries (edge daemon). Mirrors the LogSystem::on_start
-// console+file formatters byte-for-byte so customer-side tools log identically to engine/replica/world,
+// file formatter byte-for-byte so customer-side tools log identically to engine/replica/world,
 // but with no capture-ring/CountingSink/HTTP-ring (no /api/logs consumer) and no registry dependency.
+//
+// EIN SCHREIBWEG, WIE BEI JEDEM TIER (Betreiber-Entscheid 2026-08-11): das Logverzeichnis ist das
+// Ziel, der rotierende Datei-Sink der einzige Schreiber, eine Konsole LIEST die Datei per tail. Der
+// fruehere stdout_color_sink stand hier als zweite Ausgabe daneben - dieselbe Parallelklasse, die
+// als systemd-append 83 GB Phantom geschrieben hat. Die Datei ist deshalb PFLICHT, nicht Option:
+// ohne Pfad haette dieses Werkzeug gar kein Ziel mehr und waere still (verbotener stiller Bereich).
 void init_server_standalone(const std::string& name, const std::string& label, const std::string& log_file) {
     if (LogSystem::logger()) return;  // idempotent — matches inline init() guard
 
-    auto console_formatter = std::make_unique<spdlog::pattern_formatter>();
-    console_formatter->add_flag<ColoredLevelFlag>('*');
-    console_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] [" + label + "] %v");
+    if (log_file.empty()) {
+        // Kein Ziel = keine Stimme. Ein Werkzeug ohne Logpfad ist ein Aufrufer-Fehler und wird
+        // hier sichtbar, statt still zu verschwinden: stderr ist der einzige Ort, der ohne
+        // Logger ueberhaupt erreichbar ist, und diese eine Zeile faellt genau einmal beim Start.
+        std::fprintf(stderr, "[ase-log] %s: kein Logpfad uebergeben - keine Logdatei, keine Ausgabe\n",
+                     name.c_str());
+        return;
+    }
 
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    console_sink->set_color(spdlog::level::trace, "\033[38;5;243m");
-    console_sink->set_color(spdlog::level::debug, "\033[38;5;67m");
-    console_sink->set_color(spdlog::level::info, "\033[38;5;71m");
-    console_sink->set_color(spdlog::level::warn, "\033[38;5;179m");
-    console_sink->set_color(spdlog::level::err, "\033[38;5;167m");
-    console_sink->set_color(spdlog::level::critical, "\033[38;5;168m");
-    console_sink->set_formatter(std::move(console_formatter));
-
-    ase::containers::Vector<spdlog::sink_ptr> sinks{console_sink};
-
-    if (!log_file.empty()) {
+    ase::containers::Vector<spdlog::sink_ptr> sinks;
+    {
         std::filesystem::path absolute_log_path;
         if (std::filesystem::path(log_file).is_relative()) {
             absolute_log_path = get_project_root() / log_file;
@@ -622,9 +606,12 @@ void init_server_standalone(const std::string& name, const std::string& label, c
         // NO truncate: the rotating sink opens with rotate_on_open, turning the previous run into
         // name.1.log instead of erasing it. Emptying the file first would disable that rotation,
         // because it only fires on a non-empty file.
+        //
+        // VOLLES FARB-FORMAT: die Konsole ist ein tail auf diese Datei, die Farben sind
+        // Systemsprache - identisch zum Tier-Datei-Sink in LogSystem::on_start.
         auto file_formatter = std::make_unique<spdlog::pattern_formatter>();
-        file_formatter->add_flag<PlainLevelFlag>('#');
-        file_formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] [" + label + "] %v");
+        file_formatter->add_flag<ColoredLevelFlag>('*');
+        file_formatter->set_pattern("\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] [" + label + "] %v");
         auto file_sink = make_rotating_file_sink(absolute_log_path.string());
         file_sink->set_formatter(std::move(file_formatter));
         sinks.push_back(file_sink);
