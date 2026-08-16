@@ -22,7 +22,7 @@ namespace ase::log {
  *    app.add_module<LogModule>();
  */
 struct LogConfig {
-    char log_file[256] = "";   // Empty by default — KernelCliSystem MUST populate.
+    char log_file[256] = "";   // Empty by default — KernelCmdSystem MUST populate.
     char label[16] = "SERVER";
     uint32_t ringbuffer_size = 500;
     LogConfig() = default;
@@ -38,12 +38,12 @@ struct LogModule {
     static constexpr const char* version() { return MODULE_VERSION; }
 
     void build(ecs::App& app) {
-        // LogSystem MUST run after KernelCliSystem so LogConfig is populated
+        // LogSystem MUST run after KernelCmdSystem so LogConfig is populated
         // with the per-server path (logs/{server}-{port}.log) before on_start
         // reads it. Without this ordering all servers end up writing to the
         // same file.
         app.add_system_with<LogSystem>(ecs::Schedule::Initialization)
-            .run_after("KernelCliSystem");
+            .run_after("KernelCmdSystem");
     }
 };
 

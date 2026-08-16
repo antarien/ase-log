@@ -265,7 +265,7 @@ void init_tui_standalone(const std::string& name, const std::string& label, cons
  * Must be the FIRST call at the top of Kernel::build — it puts g_logger_
  * into a well-defined state (a single ringbuffer sink, no console) so every
  * log::* call made afterwards by kernel init, KernelEnvLdrSystem,
- * KernelCliSystem, dlopen discovery and any pre-LogSystem::on_start code
+ * KernelCmdSystem, dlopen discovery and any pre-LogSystem::on_start code
  * is captured instead of silently dropped by the null-logger gate.
  *
  * LogSystem::on_start later attaches the real sinks (console, per-server

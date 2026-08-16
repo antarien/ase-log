@@ -268,7 +268,7 @@ static std::shared_ptr<spdlog::sinks::sink> g_pending_http_ring_    = nullptr;
 static std::shared_ptr<spdlog::sinks::sink> g_pending_counting_     = nullptr;
 
 // Install the capture-phase logger. Must be called as the FIRST line of
-// Kernel::build so every later log call (KernelEnvLdrSystem, KernelCliSystem,
+// Kernel::build so every later log call (KernelEnvLdrSystem, KernelCmdSystem,
 // dlopen discovery, any system's on_start before LogSystem runs) goes into
 // g_capture_ring_ instead of being dropped by the null-logger gate in log.hpp.
 // No console sink — the App::startup() Schedule-Bootstrap block writes its
@@ -284,7 +284,7 @@ void install_capture_logger() {
 
 // Parse --log <+/-token...> from argv and feed the 3-axis filter engine.
 // Collects every consecutive token starting with '+' or '-' that follows
-// the "--log" flag, joined by spaces, exactly like KernelCliSystem did
+// the "--log" flag, joined by spaces, exactly like KernelCmdSystem did
 // before. Standalone (no Registry / no ECS) so it can run before
 // install_capture_logger — i.e. before any log::* call could fire.
 void finalize_logger_after_boot() {
@@ -352,9 +352,9 @@ LogSystem::LogSystem(const std::string& name, const std::string& log_file)
 {}
 
 void LogSystem::on_start(ecs::Registry& registry) {
-    // LogConfig is authoritative — set by KernelCliSystem from argv[0] +
+    // LogConfig is authoritative — set by KernelCmdSystem from argv[0] +
     // ASE_HTTP_PORT. Guaranteed present because LogSystem runs after
-    // KernelCliSystem via run_after in LogModule::build. No fallback — a
+    // KernelCmdSystem via run_after in LogModule::build. No fallback — a
     // missing LogConfig is a boot bug and must fail fast (entt-assert).
     auto& cfg = registry.ctx().get<LogConfig>();
     std::string lbl = cfg.label[0] != '\0' ? std::string(cfg.label) : std::string("SERVER");
