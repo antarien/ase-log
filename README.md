@@ -1,5 +1,7 @@
 # ase-log
 
+**Design:** DSGN_016 (AEC//LOGS — Logging Framework)
+
 [![Layer](https://img.shields.io/badge/Layer-1%20Core-green.svg)]()
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)]()
 

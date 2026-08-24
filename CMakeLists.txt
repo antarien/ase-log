@@ -76,6 +76,7 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E touch ${_STAMP_FILE}
     WORKING_DIRECTORY ${_ASE_BASE}
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_log_cat.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/log_categories.json"
             "${_TAXONOMY_DIR}/_index.json"
             "${_TAXONOMY_DIR}/01_prp_property.json"
             "${_TAXONOMY_DIR}/02_sta_state.json"
@@ -133,7 +134,14 @@ add_library(${PROJECT_NAME} STATIC
     Logging system implementation.
     ]]
     src/log_sys.cpp
+    src/log_files.cpp
+    src/log_capture.cpp
+    src/log_resource_manager.cpp
+    src/log_query.cpp
     src/log_cat_gen.cpp
+    src/log_err_cat_gen.cpp
+    src/log_display.cpp
+    src/log_display_gen.cpp
 
     #[[
     HEADERS
@@ -142,7 +150,11 @@ add_library(${PROJECT_NAME} STATIC
     include/ase/log/colors.hpp
     include/ase/log/log.hpp
     include/ase/log/log_cat_gen.hpp
+    include/ase/log/log_err_cat_gen.hpp
+    include/ase/log/log_display.hpp
     include/ase/log/log_filter.hpp
+    include/ase/log/internal/log_files.hpp
+    include/ase/log/internal/log_pattern_flags.hpp
     include/ase/log/log_module.hpp
 )
 add_library(ase::log ALIAS ${PROJECT_NAME})
@@ -211,8 +223,39 @@ target_link_libraries(${PROJECT_NAME}
         spdlog::spdlog   # External - Logging backend
     PRIVATE
         libcuckoo        # O(1) concurrent hashmap for log filter engine
+        ase::fileio      # Layer 0 - quota.conf read/write (implementation only, see below)
+        ase::utils       # Layer 0 - strops (bounded char[] building), see the second block below
 )
 #[[ VERBOTEN: No Layer 3 dependencies! ]]
+#[[
+ase::fileio ADDED 2026-08-20 — a DOWNWARD binding (L0 from L1), and it became possible only
+today. STD_FSTREAM_FORBIDDEN used to say "ase-persist is an empty stub module - do not switch
+to it" and named the gap: ase-fileio could read and not write. The rule text now reads "Use
+ase::fileio from foundation", and text_writer.hpp::write_text exists. log_files.cpp reads and
+writes logs/quota.conf; those were the last two std::ifstream/std::ofstream in this module.
+Precedent for the binding: core/ase-codegen, core/ase-convert, clients/ase-client-explorer.
+]]
+#[[
+ase::utils ADDED 2026-08-20, AND IT WAS MISSING WHILE ALREADY BEING USED.
+
+log_sys.cpp includes <ase/utils/strops.hpp> and calls utils::str_copy / str_append; this
+target listed neither ase::utils nor any path to it. It compiled anyway, and the reason is
+worth writing down because it is not local to this module:
+
+    MEASURED with `c++ -H` on log_sys.cpp's own compile_commands entry:
+        . /usr/include/ase/utils/strops.hpp
+    /usr/include/ase/utils/strops.hpp   2026-06-01 19:45   3619 bytes
+    foundation/ase-utils/.../strops.hpp 2026-08-20 10:10   5717 bytes
+
+An INSTALLED copy of ase-utils sits in /usr/include (27 ase headers in total) and satisfies
+the include for any translation unit that does not carry an explicit -I to the source tree.
+It is eleven weeks old. Code compiled that way builds against a header nobody in this repo
+is reading — str_append_u64, added on 2026-08-20, does not exist in it, which is how the
+shadowing surfaced at all.
+
+Binding ase::utils here puts foundation/ase-utils/include ahead of the system path for this
+target, so the tree's own header is the one that gets used.
+]]
 
 include(GNUInstallDirs)
 

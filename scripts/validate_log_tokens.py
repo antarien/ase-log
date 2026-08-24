@@ -43,6 +43,42 @@ from gen_log_cat import (
     fnv1a_hash,
 )
 
+# DIESES TOR TRAEGT SEINE MELDETEXTE UND SEINE SCHWELLE NICHT MEHR SELBST (migriert 2026-08-24).
+# Es misst, ordnet ein und ruft aus; was ein Befund BEDEUTET, steht im Regelbestand, und ab
+# welchem Fuellgrad gewarnt wird, in `data/config.json`.
+#
+# WARUM DAS TOR EIN `.py` BLEIBT, mit dem Beleg: es haelt EINTRAEGE AUS MEHREREN JSON-QUELLEN
+# GEGENEINANDER und rechnet Bits aus. Ein Alias und sein Ziel muessen auf DASSELBE Bit fallen;
+# das faellt erst an, wenn beide Tabellen aufgebaut sind. Eine Regex sieht einen Eintrag und
+# kein Bit. Punkt 3 der Reihenfolge in `Skill(ase-validator)`.
+#
+# WARUM ES BIS HEUTE UEBERSEHEN WURDE: es liegt in `core/ase-log/scripts/`, nicht in
+# `scripts/prebuild/`. Die Migration vom 2026-08-23 hat ein VERZEICHNIS abgearbeitet; die LISTE
+# steht in `gates.conf`, und dort stand dieses Tor die ganze Zeit. Dieselbe Klasse wie sein
+# Fehlen im Laeufer bis zum 2026-08-20.
+sys.path.insert(0, str(PROJECT_ROOT / 'core' / 'ase-validator'))
+from ecs_validator.validators.rule_engine import apply_structural_rule   # noqa: E402
+from ecs_validator.validators.rule_loader import get_config_value        # noqa: E402
+
+_RULE_ALIAS_BRUCH = 'LOG_TOKEN_ALIAS_BIT_MISMATCH'
+_RULE_RAUM_VOLL = 'LOG_TOKEN_SPACE_EXHAUSTED'
+_RULE_RAUM_KNAPP = 'LOG_TOKEN_SPACE_NEARLY_FULL'
+
+
+def _regeltext(rid, variablen):
+    """Meldetext AUS DEM BESTAND — kein Rueckfall auf einen eigenen Text.
+
+    Fehlt die Regel, sagt das Tor, dass es nicht melden kann (rc=2), statt sich eine
+    Formulierung auszudenken, die niemand pflegt. Genau dort saesse sonst wieder ein
+    Zweitsystem — und es waere unsichtbar, weil es nur im Ausnahmefall spraeche.
+    """
+    regel = apply_structural_rule(rid, variablen)
+    if regel is None:
+        print("ERROR: rule %s missing from data/rules/ — nothing to report with" % rid,
+              file=sys.stderr)
+        return None
+    return regel if isinstance(regel, dict) else getattr(regel, '__dict__', {})
+
 
 # ---------------------------------------------------------------------------
 # Hub JSON Parsing
@@ -329,14 +365,24 @@ def run_analysis(args: argparse.Namespace) -> int:
         section_header(f"Alias Integrity ({len(all_alias_pairs)} pairs)", 242)
         register_labels(["BROKEN", "...", "broken-total", "status"])
         if has_broken:
+            # DIE FUNDSTELLEN LIEFERT DAS TOR \u2014 Alias, Ziel und BEIDE Bits, damit die Adresse
+            # vollstaendig ist. Die AUSSAGE steht darunter und kommt aus dem Bestand.
             for noun, abbr, n_bit, a_bit in broken_aliases[:20]:
                 section_line(CROSS, "BROKEN",
                     f"{C.RED}{noun}(bit={n_bit}){C.RESET} != "
-                    f"{C.CYAN}{abbr}(bit={a_bit}){C.RESET} "
-                    f"\u2014 +{abbr} won't match files with \"{noun.lower()}\"")
+                    f"{C.CYAN}{abbr}(bit={a_bit}){C.RESET}")
             if len(broken_aliases) > 20:
+                # KEIN STILLER DECKEL: was nicht gedruckt wurde, nennt sich selbst.
                 section_line(SKIP, "...",
                     f"{C.MUTED}({len(broken_aliases) - 20} more){C.RESET}")
+            _n, _a, _nb, _ab = broken_aliases[0]
+            _v = _regeltext(_RULE_ALIAS_BRUCH,
+                            {'alias': _n, 'target': _a, 'alias_bit': _nb, 'target_bit': _ab})
+            if _v is None:
+                print("GATE-COUNT: 0")
+                return 2
+            section_detail(_v.get('message', ''))
+            section_detail(_v.get('suggestion', ''))
             section_line(CROSS, "broken-total",
                 f"{C.RED}{len(broken_aliases)}{C.RESET}")
         else:
@@ -359,13 +405,59 @@ def run_analysis(args: argparse.Namespace) -> int:
 
     pct = (actual_bits / capacity) * 100
     cap_str = f"{C.YELLOW}{actual_bits:,}{C.RESET} / {C.MUTED}{capacity:,}{C.RESET} ({C.CYAN}{pct:.0f}%{C.RESET})"
+    # DIE WARNSCHWELLE KOMMT AUS DEN DATEN (2026-08-24), bis dahin stand hier `pct > 90`.
+    # Punkt 2 der Reihenfolge in `Skill(ase-validator)`: eine Schwelle gehoert nach
+    # data/config.json, nie in ein Skript.
+    #
+    # DIE KAPAZITAET BLEIBT IM CODE, und das ist kein Versehen: 16384 folgt aus dem Bitfeld-
+    # Header (256 Bloecke mal 64 Bit) und ist eine EIGENSCHAFT des Formats. In der Konfiguration
+    # waere sie eine einstellbare Zahl — und ein Ueberlauf liesse sich durch Hochsetzen
+    # wegkonfigurieren, statt ihn zu beheben.
+    _warn_pct = get_config_value('log_token_capacity.warn_percent')
     if pct > 100:
         section_line(CROSS, "capacity", f"{cap_str} {C.RED}<- OVER!{C.RESET}")
-    elif pct > 90:
-        section_line(CHECK, "capacity", f"{cap_str} {C.YELLOW}<- WARN >90%{C.RESET}")
+        _v = _regeltext(_RULE_RAUM_VOLL, {'used': actual_bits, 'capacity': capacity})
+        if _v is None:
+            print("GATE-COUNT: 0")
+            return 2
+        section_detail(_v.get('message', ''))
+        section_detail(_v.get('suggestion', ''))
+    elif _warn_pct is not None and pct > _warn_pct:
+        section_line(CHECK, "capacity", f"{cap_str} {C.YELLOW}<- WARN{C.RESET}")
+        # `round`, NICHT `int`: die Zeile darueber zeigt `{pct:.0f}`, also gerundet. Mit `int`
+        # standen 47 und 46 Prozent fuer dieselbe Sache in derselben Ausgabe — eine Abweichung,
+        # die den Leser an der Messung zweifeln laesst, nicht am Rundungsmodus.
+        _v = _regeltext(_RULE_RAUM_KNAPP,
+                        {'used': actual_bits, 'capacity': capacity, 'percent': round(pct)})
+        if _v is None:
+            print("GATE-COUNT: 0")
+            return 2
+        section_detail(_v.get('message', ''))
+        section_detail(_v.get('suggestion', ''))
     else:
         section_line(CHECK, "capacity", cap_str)
     tprint()
+
+    # BEFUNDZAHL FUER DIE SPALTE DER VALIDATION-BOX — maschinenlesbar, ohne Wirkung auf den
+    # Exitcode.
+    #
+    # WARUM SIE BIS 2026-08-20 FEHLTE UND WARUM DAS TEUER IST: dieses Tor meldete `rc=1` und
+    # eine LEERE Zelle. Gegen eine leere Zelle kann keine Sitzung arbeiten — sie sieht, DASS
+    # das Tor faellt, nicht WIE WEIT sie noch ist. Zwischen einem gebrochenen Alias und
+    # zwanzig liegt der Unterschied zwischen „gleich behoben" und „eigener Arbeitszug", und
+    # in der Box sahen beide gleich aus. Gemessen ueber alle 27 Tore: 25 lieferten einen
+    # Count, dieses und `Wire Catalog` nicht.
+    #
+    # GEZAEHLT WERDEN STELLEN, NICHT SYMPTOME: jeder gebrochene Alias ist EIN Befund, und die
+    # Kapazitaetsueberschreitung ist EINER — nicht die Zahl der Bits darueber. Wer die
+    # Ueberschreitung nach Bits zaehlte, saehe eine Zahl, die beim Beheben eines einzigen
+    # Alias um mehrere faellt, und koennte den Fortschritt nicht lesen.
+    befunde = len(broken_aliases) + (1 if actual_bits > capacity else 0)
+    # DER UMFANG ALS EIGENE SPALTE (`GATE-SCOPE`, 2026-08-24). Dieses Tor inspiziert JSON-Quellen
+    # des Log-Filters, nicht den C++-Baum — die Spalte nennt deshalb Bits und Kapazitaet, nicht
+    # Module. Ohne sie sagt eine 0 nicht, ob der Tokenraum halb oder randvoll ist.
+    print(f"GATE-SCOPE: {actual_bits}/{capacity} Bits belegt")
+    print(f"GATE-COUNT: {befunde}")
 
     # Exit code
     if has_broken:

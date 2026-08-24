@@ -1,0 +1,311 @@
+{
+  "_comment": "SSOT der Fehler- und Warnkategorien. Erzeugt log_err_cat_gen.hpp (Konstanten) und log_err_cat_gen.cpp (Nachschlagefunktionen). Eine neue Kategorie ist EIN Eintrag hier plus ein Generatorlauf - kein Schrieb an einem L1-Header, kein Vollbau.",
+  "_generator": "core/ase-log/scripts/gen_log_cat.py",
+  "_rules": [
+    "Die Kategorie IST ihr Name. Der Generator bildet den FNV-1a-Hash der KLEINGESCHRIEBENEN Form von \"<NAMENSRAUM>_<NAME>\" - also von \"err_host_op_failed\", nicht von \"HOST_OP_FAILED\" (gen_log_cat.py fnv1a_hash senkt vor dem Hashen; gemessen 2026-08-24 gegen die Generat-Konstanten - wer die Grossform hasht, bekommt einen anderen Wert und jedes Nachschlagen geht still ins Leere). Es gibt keine Nummer, keine Tabelle und keinen Zaehler; Umsortieren, Einfuegen und Loeschen aendern keinen einzigen bestehenden Wert.",
+    "DER NAMENSRAUM IM GEHASHTEN STRING IST DIE BEDINGUNG DER SPIEGELUNG, nicht Zierrat. Jede Kategorie existiert auf BEIDEN Ebenen, wo es Sinn hat - derselbe NAME steht also zweimal, mit Absicht. Wuerde nur der nackte Name gehasht, waeren ERR::CAT::HOST_OP_FAILED und WRN::CAT::HOST_OP_FAILED DASSELBE Konstante: die Namensraeume trennten sie beim SCHREIBEN, und nichts trennte sie beim NACHSCHLAGEN. Die WRN-Konstante an log::error uebergeben druckte den ERR-Hilfetext - eine plausible falsche Antwort, und genau die Klasse, gegen die dieser Umbau gebaut ist.",
+    "Der gehashte String ist damit der Vertrag: wer den Namen ODER die Ebene aendert, aendert den Hash. Ein umbenannter Eintrag ist eine NEUE Kategorie, kein umbenannter Wert - der alte Hash faellt aus dem Bestand und landet in der lauten Marke.",
+    "Der frueher noetige Fuellbereich (WRN 4..15) ist gegenstandslos und ersatzlos entfallen. Er existierte, weil ERR und WRN sich einen knappen uint8_t-Raum teilten und eine verirrte Konstante still kreuzte; zwei verschiedene gehashte Strings koennen das nicht.",
+    "Ein Hash ausserhalb des Bestands faellt NICHT auf einen Eintrag zurueck. Er bekommt eine laute Marke - ein plausibler falscher Hilfetext ist teurer als ein sichtbar unbekannter.",
+    "Eine Kollision bricht den Generatorlauf, und zwar ueber BEIDE Namensraeume hinweg: die Pruefmenge ist gemeinsam, weil ein Wert nur einmal existieren darf, egal wo er entsteht.",
+    "short und hint sind die zwei Anzeigetexte einer Kategorie und ersetzen das fruehere help-Feld. short traegt NUR das Essentielle, steht mit in der Kopfzeile und darf NIE umbrechen - seine harte Obergrenze ist short_max_columns in log_display.json, und der Generator erzwingt sie. hint ist der stehende Rat, den die Konsole als abgesetzten grauen Block rendert. get_cat_help und get_wrn_cat_help liefern weiterhin den langen Text (den hint), damit die Formatzeilen in log.hpp unberuehrt bleiben - erst der geplante log.hpp-Umbau haengt short statt hint an die Zeile. get_cat_short und get_wrn_cat_short sind in log_display.hpp deklariert, NICHT im Generat-Header: eine dort ergaenzte Deklaration recompilierte den Baum.",
+    "hint sagt NIE zu, was NACH der Meldung geschieht. Die Kategorie beschreibt einen ZUSTAND, nicht die Reaktion des Aufrufers. Bei gespiegelten Paaren ist das der EINZIGE Unterschied der beiden hint-Texte - die ERR-Haelfte endet, die WRN-Haelfte laeuft weiter. short darf auf beiden Ebenen identisch sein.",
+    "short und hint sind FLIESSTEXT OHNE SYMBOLE: verboten sind Aufzaehlungsmarken (Ziffern oder Buchstaben mit Klammer), Ziffern ueberhaupt, Gedankenstriche, Bindestriche, Semikola, Doppelpunkte, Klammern und Schraegstriche als Satzbau. Erlaubt sind Woerter, Kommata, Punkte und Apostrophe - eine Meldung ist ein Satz, keine Liste und kein Diagramm. EINZIGE Ausnahme sind die woertlichen Bezeichner aus log_display.json literal_identifiers (on_start(), .run_after(), .env, value_id): sie behalten ihre exakte Schreibweise, denn ein umgeschriebener Name zeigte auf etwas anderes. Auch dieses Tor prueft der Generator bei jedem Lauf.",
+    "suffix gehoert der KATEGORIE, nicht der Stelligkeit einer Ueberladung.",
+    "Wird eine Kategorie auf einer Ebene WEGGELASSEN, steht der Grund unter _omitted. Ein Weglassen mit Grund ist eine Entscheidung; ein Weglassen ohne Grund ist die Luecke, die eine Stelle unmigrierbar macht."
+  ],
+
+  "err": {
+    "namespace": "ERR",
+    "categories": [
+      {
+        "name": "UNKNOWN", "short": "", "hint": "", "suffix": "",
+        "doc": "Die ausdrueckliche Nicht-Aussage: der Aufrufer weiss, dass er nichts einzuordnen hat. NICHT der Rueckfall - ein unbekannter Hash landet seit dem Hash-Umbau in einer lauten Marke, nicht hier."
+      },
+      {
+        "name": "HUB_NOT_FOUND", "suffix": "",
+        "short": "check owner ID and value_id",
+        "hint": "Check that the IniSystem created the hub entity in on_start(), that spawn created the hub values for the entity, that the owner ID is the right one and that the value_id carries no typo",
+        "doc": "Hub entity doesn't exist for owner+value_id"
+      },
+      {
+        "name": "HUB_GLOBAL_MISSING", "suffix": " (GLOBAL)",
+        "short": "check source module and value_id",
+        "hint": "Check that the source module's IniSystem created the GLOBAL hub value, that the source module is loaded and that the value_id carries no typo",
+        "doc": "GLOBAL hub value missing. Die EINZIGE Kategorie mit Zusatz - er stand frueher fest im Formatstring der Drei-Argument-Ueberladung und gehoerte damit der STELLIGKEIT statt der KATEGORIE."
+      },
+      {
+        "name": "COMPONENT_MISSING", "suffix": "",
+        "short": "required component not on the entity",
+        "hint": "Check that the entity was spawned with its required components and that no other system removed the component",
+        "doc": "Required component not on entity"
+      },
+      {
+        "name": "INVALID_ENTITY", "suffix": "",
+        "short": "entity destroyed or ID stale",
+        "hint": "Check that the entity was not destroyed, that the stored entity ID is the right one and that no dangling reference survived",
+        "doc": "Entity ID is invalid or destroyed"
+      },
+      {
+        "name": "SCHEDULE_ORDER", "suffix": "",
+        "short": "producer system runs too late",
+        "hint": "Check that the producer system is scheduled earlier and that the module definition carries the .run_after() constraint",
+        "doc": "System runs before its dependency"
+      },
+      {
+        "name": "CONFIG_MISSING", "suffix": "",
+        "short": "set the variable in the unit's .env",
+        "hint": "Check that the variable is set in the unit's .env, that the .env is loaded before the plugin starts, that the variable name carries no typo and that the value is not empty",
+        "doc": "Env/config value absent - lives BEFORE the registry. Kein GLOBAL-Zusatz: es liegt vor der Registry."
+      },
+      {
+        "name": "RESOURCE_UNAVAIL", "suffix": "",
+        "short": "named but not obtainable",
+        "hint": "Check that the resource exists, is reachable AND not empty, because a file of zero length passes every existence test and still yields nothing. Then check the permissions on path or port, that the capacity of arena, buffer or descriptors is not exhausted, that the previous holder released it and that the read completed, since a short read leaves the resource present and unusable",
+        "doc": "Eine RESSOURCE ausserhalb der Registry steht nicht zur Verfuegung: Datei, Socket, Arena, Puffer, Uhr. Nicht COMPONENT_MISSING (Entity-Aussage) und nicht CONFIG_MISSING (nicht gesetzter Wert) - hier IST etwas konfiguriert und benannt, es laesst sich nur nicht belegen. HIERHER GEHOERT DIE FEHLGESCHLAGENE SLOT-VERGABE EINES VERWALTERS OHNE OBERGRENZE, und das ist die Gegenrichtung der Bedingung unter CAPACITY_REACHED: der Ungueltig-Wert der Kennung sagt 'nicht zu haben', nie 'voll'. ZUERST DER GEGENFALL, damit niemand pauschal hierher umschreibt: fuehrt der aufgerufene Verwalter einen ECHTEN Deckel - ein festes Array, ein Kapazitaetsfeld, eine full()-Abfrage -, dann gilt CAPACITY_REACHED und NICHT diese Kategorie; ReplicaSklPrivResourceManager und das feste Staging-Array in ReplicaCapNodeRowSystem sind die belegten Beispiele dafuer. Erst wo die Vergabe KEINEN Fehlerpfad traegt - gemessen an ReplicationPstResourceManager und ReplicationLodResourceManager -, ist diese Kategorie die richtige. Die Pruefung ist in beiden Richtungen dieselbe und steht ausgeschrieben unter CAPACITY_REACHED."
+      },
+      {
+        "name": "ACCESS_DENIED", "suffix": "",
+        "short": "identity lacks clearance",
+        "hint": "Check that the caller identity was resolved before the check and that the required clearance or permission is recorded for that identity. The decision belongs in the error stream, not as a warning",
+        "doc": "Ein AUTORISIERUNGSENTSCHEID auf Fehlerebene: der Aufrufer ist bekannt, die Anfrage wohlgeformt, und sie wird abgelehnt. Bewusst NICHT WRN::CAT::INPUT_REJECTED - eine Warnung faellt aus jedem ERR-Filter heraus."
+      },
+      {
+        "name": "WORK_PRECLUDED", "suffix": "",
+        "short": "state precludes the work",
+        "hint": "State noted. Nothing is missing, unreachable or unset and the work does not apply here",
+        "doc": "Der ZUSTAND erlaubt die Arbeit nicht - und nichts ist kaputt, unerreichbar oder ungesetzt. Der Hilfetext sagt bewusst NICHTS ueber den Kontrollfluss: dieser Zustand ist oft der gewollte. BEDINGUNG, und sie faellt genau dort, wo die Kategorie am haeufigsten falsch gewaehlt wird: der Hilfetext schliesst 'unerreichbar' AUSDRUECKLICH aus, und eine fehlgeschlagene Slot-Vergabe IST unerreichbar - dort faellt die Kategorie aus und RESOURCE_UNAVAIL gilt. Wer WORK_PRECLUDED nach einer Vergabe setzt, hat den eigenen Hilfetext gegen sich. Die ausgeschriebene Pruefung steht unter CAPACITY_REACHED und gilt hier gleichermassen."
+      },
+      {
+        "name": "INPUT_TOO_LARGE", "suffix": "",
+        "short": "payload over the documented cap",
+        "hint": "Check the caller's payload against the documented cap and the cap itself against its intended value. Nothing was stored or forwarded because the whole input was rejected",
+        "doc": "Eine EINGABE ueberschreitet eine feste Obergrenze und wird als Ganzes verworfen. Nicht RESOURCE_UNAVAIL (dort ist die Aufnahme erschoepft, hier war sie nie zustaendig) und nicht WRN::CAT::INPUT_REJECTED - der Vorgang endet, statt weiterzulaufen."
+      },
+      {
+        "name": "HOST_OP_FAILED", "suffix": "",
+        "short": "the OS error text names the cause",
+        "hint": "Check that the named path, handle or program is the intended one, then permissions and free space, then the OS error text in detail. That text names the cause while the category only names the class. On a REMOTE host the same checks apply to the far side, the reply carries the error text and local permissions and disk are the wrong trail",
+        "doc": "Ein VORGANG am Wirtssystem ist gescheitert: anlegen, schreiben, ersetzen, ein fremdes Programm starten. DERSELBE VORGANG AUF EINEM FREMDEN WIRTSSYSTEM gehoert ebenfalls hierher: eine Einheit, die den Schritt fuer uns ausgefuehrt hat, meldet seinen Fehlschlag zurueck. Der Rundlauf selbst ist dabei GELUNGEN - die Gegenseite war erreichbar und hat geantwortet; gescheitert ist, was an ihrem Ende lief. Deshalb nicht RESOURCE_UNAVAIL: dort kommt keine Antwort. Abgrenzung: CONFIG_MISSING heisst, es wurde nie etwas versucht; RESOURCE_UNAVAIL heisst, die Ressource existiert und ist unerreichbar. Hier war alles gesetzt, der Vorgang selbst ist fehlgeschlagen. Auf WRN-Ebene gibt es dieselbe Kategorie fuer den Fall, dass der Durchlauf danach weitergeht."
+      },
+      {
+        "name": "INPUT_TRUNCATED", "suffix": "",
+        "short": "input ended before its declared end",
+        "hint": "Check the declared length against what actually arrived and whether the sender split the message. Nothing was decoded because a short frame yields no partial result",
+        "doc": "Eine EINGABE endet vor ihrem angekuendigten Ende: ein Rahmen ist zu kurz, ein Feld fehlt hinten. Die Spiegelhaelfte von INPUT_TOO_LARGE - dort ueberschreitet die Eingabe eine Obergrenze, hier erreicht sie ihre Untergrenze nicht. Nicht VALUE_INVALID: der Wert ist nicht falsch, er ist unvollstaendig, und es gibt keinen Teilerfolg."
+      },
+      {
+        "name": "REFERENCE_UNRESOLVED", "suffix": "",
+        "short": "check the producer of the reference",
+        "hint": "Check the PRODUCER of the reference, not this caller. Ask whether the target was ever created, whether a later step removed it and whether the reference stems from an older structure version",
+        "doc": "Der VERWEIS ist wohlgeformt, das Ziel existiert nicht. ERR-Entsprechung von WRN::CAT::REFERENCE_UNRESOLVED: dieselbe Sache, aber der Vorgang endet hier statt weiterzulaufen. Wie dort ist es eine NACHGELAGERTE Beobachtung - der Hilfetext schickt den Leser zum ERZEUGER der Adresse, nicht zum Aufrufer."
+      },
+      {
+        "name": "INPUT_REJECTED", "suffix": "",
+        "short": "caller sent something unserviceable",
+        "hint": "Check what the caller sent against what the contract allows and whether the rejection is the intended answer. Nothing was processed and this is not an engine fault",
+        "doc": "Ein fremder Aufrufer hat etwas Unbedienbares geschickt, und der Vorgang ENDET. ERR-Entsprechung von WRN::CAT::INPUT_REJECTED: dieselbe Sache, anderer Ernstfall - dort laeuft der Durchlauf weiter, hier nicht. Wer Ablehnungen im Fehlerstrom auswerten will, findet sie nur hier; eine Warnung faellt aus jedem ERR-Filter."
+      },
+      {
+        "name": "CAPACITY_REACHED", "suffix": "",
+        "short": "full, check size and drain rate",
+        "hint": "Check the capacity itself first, because a container that is always full is sized wrong, not busy. Then check the producer rate against the drain rate, and what was refused and whether it can be retried",
+        "doc": "Eine Aufnahme ist VOLL und nimmt nichts mehr an, und der Vorgang endet. Abgrenzung zu RESOURCE_UNAVAIL: dort ist die Ressource nicht zu belegen, hier ist sie belegt und arbeitet - ihr fehlt nur der Platz. Die WRN-Haelfte gilt, wo etwas verworfen wird und der Durchlauf weitergeht. BEDINGUNG - OHNE SIE IST DIE KATEGORIE EINE BEHAUPTUNG UEBER FREMDEN CODE: sie gilt NUR, wo der AUFGERUFENE Verwalter selbst eine Obergrenze FUEHRT - ein festes Array, ein Kapazitaetsfeld, eine full()-Abfrage. Eine Vergabe OHNE Fehlerpfad kann nicht voll sein; ihr Ungueltig-Wert heisst 'nicht zu haben', und dort gilt RESOURCE_UNAVAIL. Gemessen: ReplicationPstResourceManager und ReplicationLodResourceManager fuehren seit dem Umbau auf mitwachsende Maps KEINE Obergrenze mehr, ihre Vergabe traegt keinen Fehlerpfad - jede CAPACITY_REACHED-Zeile ueber ihnen ist falsch. GEGENBEISPIELE, DIE DIE KATEGORIE BEHALTEN, und sie sind wichtiger als die Regel: ReplicaSklPrivResourceManager (feste Tabelle mit TABLE_MASK) und das feste Staging-Array in ReplicaCapNodeRowSystem. Pauschal zu ersetzen ist derselbe Fehler wie die falsche Kategorie, nur in der Gegenrichtung. DER LEHRFALL: replica_skl_sign_sys.cpp traegt beide Faelle in DERSELBEN Funktion, wenige Zeilen auseinander, mit fast demselben Kommentar - der Signoff gegen die feste Tabelle behaelt die Kategorie, die Slot-Vergabe daneben nicht. Kein Tor kann das trennen, weil beide Zeilen gleich aussehen; nur wer den aufgerufenen Verwalter aufschlaegt, entscheidet richtig."
+      },
+      {
+        "name": "UNKNOWN_ID", "suffix": "",
+        "short": "identifier stands in no registry",
+        "hint": "Check the spelling of the identifier against the registry that owns it, whether the producer registered it before this call and whether the registry itself is the one you expect",
+        "doc": "Ein BEZEICHNER ist unbekannt: ein Name, ein Schluessel, eine Kennung, die in keinem Register steht. Abgrenzung zu REFERENCE_UNRESOLVED: dort ist der Verweis wohlgeformt und sein ZIEL fehlt, hier ist schon der Bezeichner selbst nicht bekannt. Und nicht CONFIG_MISSING: dort ist ein Wert nicht GESETZT, hier ist er gesetzt und nicht AUFLOESBAR."
+      },
+      {
+        "name": "BUFFER_TOO_SMALL", "suffix": "",
+        "short": "caller buffer too small",
+        "hint": "Check the buffer size at the CALLER, which owns the buffer rather than this function, against the maximum this operation can produce. Nothing was written because a short buffer yields no partial result",
+        "doc": "Ein GELIEHENER Puffer reicht nicht. Der Unterschied zu allen drei Nachbarn ist der EIGENTUEMER: INPUT_TOO_LARGE misst die Eingabe gegen eine EIGENE Obergrenze, CAPACITY_REACHED eine EIGENE volle Aufnahme, RESOURCE_UNAVAIL eine nicht belegbare Ressource. Hier gehoert die Grenze dem AUFRUFER, und nur er kann sie aendern - deshalb schickt der Hilfetext dorthin."
+      },
+      {
+        "name": "VERSION_MISMATCH", "suffix": "",
+        "short": "expected and received differ",
+        "hint": "Check expected against received, and both belong in the line. Then check which side is older and whether the two were built from the same tree",
+        "doc": "Zwei Seiten erwarten verschiedene Staende: ein Modul-ABI, ein Rahmenformat, ein Manifest. Nicht VALUE_INVALID - beide Werte sind fuer sich gueltig, nur zueinander nicht. Die Zeile traegt IMMER beide Angaben; eine allein macht den Befund unbrauchbar, weil nicht erkennbar ist, welche Seite nachzuziehen ist."
+      },
+      {
+        "name": "VALUE_OUT_OF_RANGE", "suffix": "",
+        "short": "value left its valid range",
+        "hint": "Check the value against the range that rejected it and decide which side is wrong, the value or the range. Nothing was applied and the operation ends here",
+        "doc": "Spiegel von WRN::CAT::VALUE_OUT_OF_RANGE auf Fehlerebene: der Wert existiert und liegt ausserhalb seines gueltigen Bereichs, und der Vorgang ENDET. Auf der Warnebene entscheidet der Aufrufer noch zwischen klemmen, ablehnen und behalten; hier ist die Entscheidung gefallen."
+      },
+      {
+        "name": "VALUE_NEGATIVE", "suffix": "",
+        "short": "check for subtraction underflow",
+        "hint": "Check the producer of the value, because a negative here is not correctable at this end, and whether a subtraction underflowed. Nothing was applied and the operation ends here",
+        "doc": "Spiegel von WRN::CAT::VALUE_NEGATIVE auf Fehlerebene. Eigene Kategorie und nicht VALUE_OUT_OF_RANGE, weil ein negativer Wert fast immer eine andere Ursache hat als ein zu grosser: eine Unterlaufrechnung statt einer verletzten Obergrenze."
+      },
+      {
+        "name": "VALUE_INVALID", "suffix": "",
+        "short": "value breaks the contract",
+        "hint": "Check what the value means in the contract that rejected it and the producer that wrote it. Nothing was applied and the operation ends here",
+        "doc": "Spiegel von WRN::CAT::VALUE_INVALID auf Fehlerebene: der Wert ist vorhanden und semantisch ungueltig, und der Vorgang endet. Nicht VERSION_MISMATCH - dort sind beide Werte fuer sich gueltig und nur zueinander nicht."
+      }
+    ],
+    "_omitted": [
+      {
+        "name": "INPUT_INCOMPLETE",
+        "reason": "Hat auf der Fehlerebene keinen Gegenstand. Die Kategorie sagt: ein OPTIONALER Teil fehlt und die Arbeit findet trotzdem statt, mit reduziertem Ergebnis. Genau dieses Weiterlaufen IST die Aussage - endet der Vorgang, ist der fehlende Teil nicht optional gewesen, und die Stelle traegt INPUT_TRUNCATED (Eingabe bricht ab) oder COMPONENT_MISSING (Pflichtteil fehlt)."
+      },
+      {
+        "name": "OVERRIDE_ACTIVE",
+        "reason": "Eine wirksame Abweichung vom Vorgabewert ist auf der Fehlerebene ein Widerspruch: die Abweichung WIRKT, also laeuft der Vorgang. Verhindert eine Abweichung die Arbeit, ist das WORK_PRECLUDED; ist der abweichende Wert unbrauchbar, VALUE_INVALID."
+      }
+    ]
+  },
+
+  "wrn": {
+    "namespace": "WRN",
+    "categories": [
+      {
+        "name": "UNKNOWN", "short": "", "hint": "",
+        "doc": "Die ausdrueckliche Nicht-Aussage, Spiegel von ERR::CAT::UNKNOWN. NICHT der Rueckfall - den traegt seit dem Hash-Umbau die laute Marke im Getter."
+      },
+      {
+        "name": "VALUE_OUT_OF_RANGE",
+        "short": "value left its valid range",
+        "hint": "Check the value against the range it left. To clamp, reject or keep it is the caller's decision",
+        "doc": "KEINE Zusage ueber den Kontrollfluss. Der frueher hier stehende Satz behauptete, was NACH der Meldung geschieht - eine Bereichspruefung, die NICHT klemmt, fiel dadurch faelschlich durch."
+      },
+      {
+        "name": "VALUE_NEGATIVE",
+        "short": "check for subtraction underflow",
+        "hint": "Check why the value is negative. To zero, reject or keep it is the caller's decision",
+        "doc": "Dieselbe Klasse wie VALUE_OUT_OF_RANGE: die Kategorie stellt den ZUSTAND fest, der Aufrufer entscheidet die Reaktion."
+      },
+      {
+        "name": "VALUE_INVALID",
+        "short": "value breaks the contract",
+        "hint": "Check why the value is semantically invalid. The caller decides how to proceed",
+        "doc": "Wert vorhanden, semantisch ungueltig."
+      },
+      {
+        "name": "INPUT_REJECTED",
+        "short": "caller sent something unserviceable",
+        "hint": "The request was rejected and the caller must correct it. This is not an engine fault",
+        "doc": "Foreign caller sent something unserviceable. Der Durchlauf geht weiter - das ist der einzige Unterschied zu ERR::CAT::INPUT_REJECTED."
+      },
+      {
+        "name": "CAPACITY_REACHED",
+        "short": "full, check size and drain rate",
+        "hint": "Check which entry was dropped and whether it can be recovered, then the producer rate against the drain rate, then the capacity itself, because a queue that is always full is sized wrong, not busy",
+        "doc": "Eine Aufnahme ist VOLL und hat deshalb etwas verworfen. Abgrenzung zu RESOURCE_UNAVAIL: die Ressource ist erreichbar und arbeitet - sie hat nur keinen Platz mehr. Der Unterschied steht in zwei benachbarten Zeilen einer Datei (edge_keycard_routes.cpp: 'queue unavailable' gegen 'queue full'). DIESELBE BEDINGUNG WIE AUF DER ERR-EBENE, und sie ist hier genauso bindend: die Kategorie gilt NUR, wo der aufgerufene Verwalter selbst eine Obergrenze FUEHRT. Eine Vergabe ohne Fehlerpfad kann nicht voll sein - dort gilt RESOURCE_UNAVAIL. Die ausgeschriebene Fassung mit Belegen und Gegenbeispielen steht unter ERR::CAT::CAPACITY_REACHED und gilt fuer beide Haelften."
+      },
+      {
+        "name": "WORK_PRECLUDED",
+        "short": "state precludes the work",
+        "hint": "State noted. Nothing is missing, unreachable or unset and the work does not apply here",
+        "doc": "Wie ERR::CAT::WORK_PRECLUDED, aber auf Warnebene: der Durchlauf geht weiter. Ein Lebenszyklus-Waechter ('existiert bereits, ueberspringe') gehoert hierher, nicht in den Fehlerstrom - nichts ist kaputt. UND DIESELBE BEDINGUNG: der Hilfetext schliesst 'unerreichbar' aus, eine fehlgeschlagene Slot-Vergabe ist genau das, und dort gilt RESOURCE_UNAVAIL statt dieser Kategorie."
+      },
+      {
+        "name": "REFERENCE_UNRESOLVED",
+        "short": "check the producer of the reference",
+        "hint": "Check the PRODUCER of the reference, not this caller. Ask whether the target was ever created at this level, whether a later step removed it and whether the reference stems from an older structure version",
+        "doc": "Der VERWEIS ist wohlgeformt, das Ziel existiert in der aktuellen Struktur nicht. Nicht COMPONENT_MISSING (die Entity ist vollstaendig), nicht INVALID_ENTITY (nichts ist zerstoert), nicht VALUE_INVALID (die Adresse ist gueltig, sie benennt nur nichts). Es ist eine NACHGELAGERTE Beobachtung - der Hilfetext schickt den Leser deshalb zum ERZEUGER der Adresse, nicht zum Aufrufer."
+      },
+      {
+        "name": "HOST_OP_FAILED",
+        "short": "the OS error text names the cause",
+        "hint": "Check that the named path, handle or program is the intended one, then permissions and free space, then the OS error text in detail. That text names the cause while the category only names the class. On a REMOTE host the same checks apply to the far side, the reply carries the error text and local permissions and disk are the wrong trail. The run continues with reduced capability",
+        "doc": "Wie ERR::CAT::HOST_OP_FAILED, aber der Durchlauf geht weiter: ein Waechter liess sich nicht scharfschalten, eine Datei nicht rotieren, ein Hilfsprogramm nicht starten - und das System arbeitet mit eingeschraenkter Faehigkeit weiter. Auch der Vorgang auf einem FREMDEN Wirtssystem zaehlt hierher, wenn die ausfuehrende Einheit ANTWORTET und ihre Antwort einen Fehlschlag meldet: der Bittsteller hat dann ein vollstaendiges negatives Ergebnis statt gar keines, die Arbeitseinheit wird fertig. Der Unterschied zur ERR-Haelfte ist NICHT die Schwere des Fehlschlags, sondern ob danach noch etwas passiert."
+      },
+      {
+        "name": "INPUT_INCOMPLETE",
+        "short": "optional part missing, work reduced",
+        "hint": "Check whether the optional part was meant to be there, the producer that should have filled it and what the reduced result is missing. The work DID happen, just with less",
+        "doc": "Eine OPTIONALE Eingabe fehlt, und der Vorgang laeuft mit reduziertem Ergebnis WEITER. Die Abgrenzung ist scharf gegen alle vier Nachbarn: WORK_PRECLUDED heisst, die Arbeit findet NICHT statt - hier findet sie statt. INPUT_REJECTED heisst, die Anfrage wird abgewiesen - hier wird sie angenommen. INPUT_TRUNCATED heisst, die Eingabe bricht ab und liefert keinen Teilerfolg - hier ist sie vollstaendig, nur ein optionaler Teil fehlt. VALUE_INVALID heisst, ein Wert ist ungueltig - hier ist seine Abwesenheit erlaubt."
+      },
+      {
+        "name": "RESOURCE_UNAVAIL",
+        "short": "named but not obtainable",
+        "hint": "Check that the resource exists, is reachable AND not empty, then the permissions on path or port and that the previous holder released it. The run continues either way",
+        "doc": "Wie ERR::CAT::RESOURCE_UNAVAIL, aber der Durchlauf geht weiter. Die Abgrenzung zu WRN::CAT::HOST_OP_FAILED ist die scharfe: dort ist ein Vorgang GESCHEITERT (der Aufruf lief und schlug fehl), hier war die Ressource von vornherein nicht da. Ein leeres Verzeichnis, das es nicht gibt, ist kein gescheitertes opendir - es ist ein fehlendes Ziel. DIESELBE BEDINGUNG WIE AUF DER ERR-EBENE, und sie zeigt in die Gegenrichtung von CAPACITY_REACHED: hierher gehoert die fehlgeschlagene Slot-Vergabe eines Verwalters OHNE Obergrenze, weil der Ungueltig-Wert der Kennung 'nicht zu haben' bedeutet und nicht 'voll'. ZUERST DER GEGENFALL: fuehrt der aufgerufene Verwalter einen ECHTEN Deckel - festes Array, Kapazitaetsfeld, full()-Abfrage -, gilt WRN::CAT::CAPACITY_REACHED und NICHT diese Kategorie; ReplicaSklPrivResourceManager und das feste Staging-Array in ReplicaCapNodeRowSystem sind die belegten Beispiele. Erst wo die Vergabe KEINEN Fehlerpfad traegt - ReplicationPstResourceManager, ReplicationLodResourceManager -, ist diese Kategorie richtig. Die ausgeschriebene Pruefung steht unter ERR::CAT::CAPACITY_REACHED und gilt fuer beide Ebenen."
+      },
+      {
+        "name": "BUFFER_TOO_SMALL",
+        "short": "caller buffer too small",
+        "hint": "Check the buffer size at the CALLER, which owns the buffer rather than this function, against the maximum this operation can produce, and what was truncated or skipped",
+        "doc": "Wie ERR::CAT::BUFFER_TOO_SMALL, aber der Durchlauf geht weiter - abgeschnitten oder uebersprungen statt abgebrochen. Die Grenze gehoert dem AUFRUFER: das unterscheidet die Kategorie von INPUT_TOO_LARGE (eigene Obergrenze) und CAPACITY_REACHED (eigene volle Aufnahme), und nur deshalb schickt der Hilfetext den Leser nach draussen."
+      },
+      {
+        "name": "OVERRIDE_ACTIVE",
+        "short": "override deviates from the default",
+        "hint": "Check whether the override is meant to be active HERE, because a development switch reaching production is the case this line exists for. Then check who set it and what the default would have been. The run continues with the deviating value",
+        "doc": "Eine wirksame ABWEICHUNG vom Vorgabewert, gemeldet damit sie in einer Fehlersuche nicht uebersehen wird. Nichts ist kaputt: der Wert ist gueltig (also kein VALUE_INVALID), er wurde angenommen (also kein INPUT_REJECTED), und es fehlt nichts (also kein CONFIG_MISSING). Die Zeile existiert, weil eine Abweichung, die NICHT gemeldet wird, jede spaetere Messung still verfaelscht - wer eine Taktrate misst, waehrend eine DEV-Ueberschreibung sie setzt, misst die Ueberschreibung."
+      },
+      {
+        "name": "HUB_NOT_FOUND",
+        "short": "check owner ID and value_id",
+        "hint": "Check that the IniSystem created the hub entity in on_start(), that spawn created the hub values for the entity, that the owner ID is the right one and that the value_id carries no typo. The run continues, usually with a default",
+        "doc": "Wie ERR::CAT::HUB_NOT_FOUND, aber der Durchlauf geht weiter. Der haeufige Fall ist ein Leser, der vor seinem Erzeuger laeuft und beim naechsten Takt bedient wird - als Fehler gemeldet fuellt er den Fehlerstrom mit einem Zustand, der sich von selbst aufloest."
+      },
+      {
+        "name": "HUB_GLOBAL_MISSING",
+        "short": "check source module and value_id",
+        "hint": "Check that the source module's IniSystem created the GLOBAL hub value, that the source module is loaded and that the value_id carries no typo. The run continues, usually with a default",
+        "doc": "Wie ERR::CAT::HUB_GLOBAL_MISSING, aber der Durchlauf geht weiter. KEIN Zusatz im suffix: der Zusatz ' (GLOBAL)' gehoert der ERR-Haelfte, weil er dort aus dem Formatstring einer bestimmten Stelligkeit stammt - hier waere er eine Nachahmung ohne Herkunft."
+      },
+      {
+        "name": "COMPONENT_MISSING",
+        "short": "required component not on the entity",
+        "hint": "Check that the entity was spawned with its required components and that no other system removed the component. This entity is skipped and the rest of the view is processed",
+        "doc": "Wie ERR::CAT::COMPONENT_MISSING, aber die Schleife laeuft weiter. Der Unterschied ist wichtiger als er aussieht: eine Entity ohne Component in einer Iteration ueber tausend ist ein uebersprungener Einzelfall, kein gescheiterter Durchlauf. Nicht zu verwechseln mit einer WIRKLICH optionalen Component - deren Abwesenheit ist erlaubt und wird gar nicht gemeldet."
+      },
+      {
+        "name": "INVALID_ENTITY",
+        "short": "entity destroyed or ID stale",
+        "hint": "Check that the entity was not destroyed, that the stored entity ID is the right one and that no dangling reference survived. This entity is skipped and the run continues",
+        "doc": "Wie ERR::CAT::INVALID_ENTITY, aber der Durchlauf geht weiter. Nicht REFERENCE_UNRESOLVED: dort ist der Verweis wohlgeformt und sein Ziel fehlt, hier ist schon die Kennung selbst ungueltig."
+      },
+      {
+        "name": "SCHEDULE_ORDER",
+        "short": "producer system runs too late",
+        "hint": "Check that the producer system is scheduled earlier and that the module definition carries the .run_after() constraint. This tick used stale or missing data and the loop continues",
+        "doc": "Wie ERR::CAT::SCHEDULE_ORDER, aber der Takt laeuft weiter. Der Regelfall auf dieser Ebene ist eine Reihenfolge, die nur NICHT ZUGESICHERT ist: ohne run_after-Kante ordnet die Registrierungsreihenfolge, und das haelt in der Praxis, bis jemand eine Registrierung verschiebt."
+      },
+      {
+        "name": "CONFIG_MISSING",
+        "short": "set the variable in the unit's .env",
+        "hint": "Check that the variable is set in the unit's .env, that the .env is loaded before the plugin starts and that the variable name carries no typo. The run continues with the default value",
+        "doc": "Wie ERR::CAT::CONFIG_MISSING, aber der Durchlauf geht weiter, weil ein Vorgabewert einspringt. Die Zeile ist gerade DANN wichtig: ein stiller Vorgabewert sieht in jeder spaeteren Messung wie eine bewusste Einstellung aus."
+      },
+      {
+        "name": "INPUT_TOO_LARGE",
+        "short": "payload over the documented cap",
+        "hint": "Check the caller's payload against the documented cap and the cap itself against its intended value, then what was kept and what was cut. The run continues with the reduced input",
+        "doc": "Wie ERR::CAT::INPUT_TOO_LARGE, aber der Durchlauf geht weiter. Die Abgrenzung zu BUFFER_TOO_SMALL ist der EIGENTUEMER der Grenze: hier ist es die eigene dokumentierte Obergrenze, dort ein vom Aufrufer gelieferter Puffer."
+      },
+      {
+        "name": "INPUT_TRUNCATED",
+        "short": "input ended before its declared end",
+        "hint": "Check the declared length against what actually arrived and whether the sender split the message. This frame was dropped and the next one is processed",
+        "doc": "Wie ERR::CAT::INPUT_TRUNCATED, aber der Durchlauf geht weiter. Der typische Ort ist eine Empfangsschleife: ein zu kurzer Rahmen wird verworfen, die Verbindung bleibt bestehen und der naechste Rahmen wird gelesen."
+      },
+      {
+        "name": "UNKNOWN_ID",
+        "short": "identifier stands in no registry",
+        "hint": "Check the spelling of the identifier against the registry that owns it and whether the producer registered it before this call. This entry is skipped and the run continues",
+        "doc": "Wie ERR::CAT::UNKNOWN_ID, aber der Durchlauf geht weiter. Haeufig beim Einlesen fremder Daten: ein unbekannter Schluessel wird uebersprungen, die uebrigen werden verarbeitet."
+      },
+      {
+        "name": "VERSION_MISMATCH",
+        "short": "expected and received differ",
+        "hint": "Check expected against received, and both belong in the line. Then check which side is older and what still works and what does not. The run continues with reduced capability",
+        "doc": "Wie ERR::CAT::VERSION_MISMATCH, aber der Durchlauf geht weiter, meist mit eingeschraenkter Faehigkeit. Wie dort traegt die Zeile IMMER beide Angaben - eine allein sagt nicht, welche Seite nachzuziehen ist."
+      }
+    ],
+    "_omitted": [
+      {
+        "name": "ACCESS_DENIED",
+        "reason": "Bewusst NUR auf der Fehlerebene. Ein Autorisierungsentscheid, der als Warnung gemeldet wird, faellt aus jedem ERR-Filter heraus - und genau diese Zeilen sind die, die jemand spaeter sucht. Der Durchlauf mag weitergehen; der Ernstfall der Meldung haengt hier nicht am Kontrollfluss, sondern daran, dass sie gefunden wird."
+      }
+    ]
+  }
+}

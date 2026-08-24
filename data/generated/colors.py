@@ -1,0 +1,506 @@
+# @generated from sha-web-styles/src/colors.ts — DO NOT EDIT
+# Regenerate: node sha-web-console/generate-colors.cjs sha-web-styles/src/colors.ts
+
+
+class C:
+    """ANSI color codes — generated from colors.ts SSOT."""
+
+    # ANSI control codes
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+
+    # -- 1. SURFACE SCALE --
+    SURFACE_0 = "\033[38;2;0;0;0m"  # pure black base
+    SURFACE_0_PANEL = "\033[38;2;4;4;4m"  # panel bg, docs bg
+    SURFACE_0_INNER = "\033[38;2;8;8;8m"  # conic gradient inner ring
+    SURFACE_1 = "\033[38;2;10;10;10m"  # elevated level 1 (card, table bg)
+    SURFACE_1_CODE = "\033[38;2;12;12;12m"  # code block background
+    SURFACE_1_ALT = "\033[38;2;15;15;15m"  # table row alt, progress bar bg
+    SURFACE_2 = "\033[38;2;18;18;18m"  # elevated level 2
+    SURFACE_2_HOVER = "\033[38;2;21;21;21m"  # hover state
+    SURFACE_3 = "\033[38;2;26;26;26m"  # elevated level 3 (bar, table header)
+    SURFACE_3_CHART = "\033[38;2;26;26;46m"  # chart canvas (blue tint)
+    SURFACE_4 = "\033[38;2;36;36;36m"  # elevated level 4
+    SURFACE_4_GRAD = "\033[38;2;37;37;37m"  # gradient top stop
+    SURFACE_5 = "\033[38;2;42;42;42m"  # highest elevation (card, border)
+    SURFACE_5_SELECT = "\033[38;2;48;48;48m"  # selected button bg
+    SURFACE_5_RULE = "\033[38;2;53;53;53m"  # chart rule tertiary
+
+    # -- 2. TEXT SCALE --
+    TEXT_DIVIDER = "\033[38;2;58;58;58m"  # separator, pipe chars
+    TEXT_DISABLED = "\033[38;2;58;69;69m"  # disabled state
+    TEXT_FLOW = "\033[38;2;64;64;64m"  # flow arrow, batch status
+    TEXT_DIM = "\033[38;2;74;74;74m"  # empty state, footer
+    TEXT_MUTED = "\033[38;2;74;90;90m"  # muted text, chart label normal
+    TEXT_GRAY_50 = "\033[38;2;80;80;80m"  # mid-gray text (api tester module/phase rows)
+    TEXT_LABEL = "\033[38;2;90;90;90m"  # labels, inactive nav
+    TEXT_MESSAGE = "\033[38;2;96;96;96m"  # queue size, messages
+    TEXT_IDLE = "\033[38;2;102;102;102m"  # grid, idle state
+    TEXT_PANEL_MUTED = "\033[38;2;112;112;112m"  # panel muted
+    TEXT_SECONDARY_ALT = "\033[38;2;106;122;122m"  # secondary text
+    TEXT_JSON_RAW = "\033[38;2;128;128;128m"  # raw JSON display
+    TEXT_DOCS_MUTED = "\033[38;2;132;124;132m"  # docs muted (mauve tint)
+    TEXT_HOVER = "\033[38;2;138;138;138m"  # hover state text
+    TEXT_PRIMARY = "\033[38;2;138;154;154m"  # primary text
+    TEXT_VERSION = "\033[38;2;138;154;168m"  # version badge (blue tint)
+    TEXT_DEFAULT = "\033[38;2;154;154;154m"  # default value text
+    TEXT_LOG_DEBUG = "\033[38;2;156;163;175m"  # log debug (slate)
+    TEXT_PANEL_WHITE = "\033[38;2;192;192;192m"  # panel white
+    TEXT_LIGHT = "\033[38;2;204;204;204m"  # light gray
+    TEXT_DOCS_FG = "\033[38;2;221;221;221m"  # docs foreground
+    TEXT_TERMINAL = "\033[38;2;224;224;224m"  # terminal output text
+
+    # -- 3. BORDER SCALE --
+    BORDER_SECONDARY = "\033[38;2;31;31;31m"  # subtle borders
+    BORDER_PRIMARY = "\033[38;2;42;42;42m"  # primary borders
+    BORDER_ACTIVE = "\033[38;2;58;90;58m"  # active/focused (green)
+    BORDER_HOVER = "\033[38;2;58;90;106m"  # hover state (blue-green)
+    BORDER_CODE = "\033[38;2;57;55;69m"  # code block border (purple-gray)
+    BORDER_DOCS = "\033[38;2;83;85;74m"  # docs border (olive)
+    BORDER_A20 = "\033[38;2;115;115;115m"  # very subtle
+    BORDER_A25 = "\033[38;2;115;115;115m"  # panel subtle
+    BORDER_A30 = "\033[38;2;115;115;115m"  # light
+    BORDER_A40 = "\033[38;2;115;115;115m"  # medium
+    BORDER_A50 = "\033[38;2;115;115;115m"  # standard panel border
+    BORDER_DARK = "\033[38;2;38;38;38m"  # dark border
+    BORDER_LOG = "\033[38;2;57;55;69m"  # log border (purple)
+
+    # -- 4. PANEL ACCENT PALETTE --
+    PANEL_CYAN = "\033[38;2;90;156;184m"
+    PANEL_GREEN = "\033[38;2;74;140;106m"
+    PANEL_ORANGE = "\033[38;2;184;134;58m"
+    PANEL_PURPLE = "\033[38;2;122;90;156m"
+    PANEL_RED = "\033[38;2;168;74;74m"
+    PANEL_YELLOW = "\033[38;2;156;140;74m"
+    PANEL_EMERALD = "\033[38;2;61;139;110m"
+    MENU_RED = "\033[38;2;127;29;30m"  # aow-red: extracted from aow-banner.jpg UI elements
+    MENU_RED_HOVER = "\033[38;2;127;29;30m"  # aow-red hover bg (subtle)
+    MENU_GREEN_DONE = "\033[38;2;10;61;10m"  # press complete indicator (dark green)
+
+    # -- 5. SEMANTIC STATUS --
+    SUCCESS_BG = "\033[38;2;58;106;58m"
+    SUCCESS_TEXT = "\033[38;2;144;238;144m"
+    SUCCESS_OVERLAY = "\033[38;2;58;106;58m"
+    SUCCESS_GLOW = "\033[38;2;0;204;0m"
+    SUCCESS_MUTED = "\033[38;2;74;122;90m"  # ETL writer, success indicators
+    SUCCESS_MUTED_HOVER = "\033[38;2;58;90;74m"  # hover for success buttons
+    WARNING_BG = "\033[38;2;138;122;64m"
+    WARNING_TEXT = "\033[38;2;255;204;0m"
+    WARNING_OVERLAY = "\033[38;2;138;122;64m"
+    WARNING_MUTED = "\033[38;2;138;112;64m"  # validator, booting/paused
+    WARNING_TEXT_GOLD = "\033[38;2;255;208;103m"  # log warning (gold)
+    ERROR_BG = "\033[38;2;138;74;74m"
+    ERROR_TEXT = "\033[38;2;255;90;106m"
+    ERROR_OVERLAY = "\033[38;2;138;74;74m"
+    ERROR_GLOW = "\033[38;2;204;0;0m"
+    ERROR_OVERLAY_LIGHT = "\033[38;2;168;74;74m"
+    ERROR_OVERLAY_MED = "\033[38;2;168;74;74m"
+    ERROR_OVERLAY_HEAVY = "\033[38;2;168;74;74m"
+    ERROR_GLOW_BORDER = "\033[38;2;168;74;74m"
+    DATA_MISSING_COLOR = "\033[38;2;255;0;255m"  # magenta/pink — no star spectrum uses this, instantly visible
+    INFO_BG = "\033[38;2;58;90;106m"
+    INFO_TEXT = "\033[38;2;128;222;255m"
+    INFO_OVERLAY = "\033[38;2;58;90;106m"
+    INFO_GLOW = "\033[38;2;58;90;106m"
+    INFO_MUTED = "\033[38;2;58;106;122m"  # running, timing display
+    INFO_GLOW_BORDER = "\033[38;2;58;106;122m"
+    INFO_ACTIVE_BG = "\033[38;2;90;156;184m"
+    INFO_ANIM_BG = "\033[38;2;90;156;184m"
+    ACTIVITY_AMBER = "\033[38;2;255;176;32m"  # save flash, write indicator, session activity
+    ACCENT_PRIMARY = "\033[38;2;42;90;42m"  # muted green accent
+    ACCENT_HOVER = "\033[38;2;58;106;58m"  # accent hover
+    ACCENT_ACTIVE = "\033[38;2;74;122;74m"  # accent active
+    WIZARD_SELECTED = "\033[38;2;42;138;58m"  # dark green: selected checkbox, confirmed state
+    WIZARD_PERF_HOT = "\033[38;2;224;96;48m"  # warm orange: high/extreme perf impact, hot indicator
+    WIZARD_INFO_BLUE = "\033[38;2;128;192;255m"  # light blue: component counts, version badges
+    WIZARD_AMBER = "\033[38;2;245;158;11m"  # amber: L4 plugin layer color
+    CURATOR_AGE_FLAG = "\033[38;2;26;5;5m"  # dark blackish-red: prompt contains minor-indicating terms
+
+    # -- 6. TERMINAL COLORS --
+    TERM_RED = "\033[38;2;204;0;0m"
+    TERM_ORANGE = "\033[38;2;255;136;0m"
+    TERM_YELLOW = "\033[38;2;255;204;0m"
+    TERM_GREEN = "\033[38;2;0;204;0m"
+    TERM_CYAN = "\033[38;2;0;204;204m"
+    TERM_PURPLE = "\033[38;2;170;0;255m"
+    TERM_PINK = "\033[38;2;255;0;204m"
+
+    # -- 7. CONNECTION STATUS --
+    CONN_CONNECTED = "\033[38;2;0;204;0m"
+    CONN_CONNECTING = "\033[38;2;255;204;0m"
+    CONN_DISCONNECTED = "\033[38;2;204;0;0m"
+    CONN_IDLE = "\033[38;2;102;102;102m"
+
+    # -- 8. DOCS VIEWER --
+    DOCS_H1 = "\033[38;2;128;222;255m"  # cyan — top level
+    DOCS_H2 = "\033[38;2;186;208;45m"  # chartreuse — section
+    DOCS_H3 = "\033[38;2;224;160;96m"  # warm orange — subsection
+    DOCS_H4 = "\033[38;2;160;128;192m"  # muted purple — detail
+    DOCS_CODE_BG = "\033[38;2;12;13;20m"  # code: blue tint
+    DOCS_MATH_BG = "\033[38;2;26;22;34m"  # math (KaTeX): purple tint
+    DOCS_DSL_BG = "\033[38;2;12;18;20m"  # DSL source: teal tint
+    DOCS_TABLE_BG = "\033[38;2;10;12;10m"  # tables: green tint
+    DOCS_TABLE_HEADER = "\033[38;2;26;30;26m"  # table header: green brighter
+    DOCS_TABLE_ROW_ALT = "\033[38;2;15;17;15m"  # table alt row: green slight
+    DOCS_DIFF_BG = "\033[38;2;20;14;12m"  # diff: amber tint
+    DOCS_MERMAID_BG = "\033[38;2;16;12;22m"  # mermaid: indigo tint
+    DOCS_SVGBOB_BG = "\033[38;2;12;16;20m"  # svgbob: steel-blue tint
+    DOCS_BLOCKQUOTE_BG = "\033[38;2;16;15;12m"  # blockquotes: olive tint
+    DOCS_MATH_BORDER = "\033[38;2;58;56;80m"  # math: purple-gray
+    DOCS_DSL_BORDER = "\033[38;2;42;58;69m"  # DSL: teal
+    DOCS_DIFF_BORDER = "\033[38;2;69;53;42m"  # diff: amber
+    DOCS_MERMAID_BORDER = "\033[38;2;53;42;69m"  # mermaid: purple
+    DOCS_SVGBOB_BORDER = "\033[38;2;42;53;69m"  # svgbob: steel-blue
+    DOCS_BLOCKQUOTE_BORDER = "\033[38;2;58;56;40m"  # blockquotes: olive
+    DOCS_CALLOUT_INFO_BG = "\033[38;2;12;30;46m"  # info: visible blue tint
+    DOCS_CALLOUT_INFO_BORDER = "\033[38;2;58;144;184m"  # info: bright cyan-blue
+    DOCS_CALLOUT_WARN_BG = "\033[38;2;42;30;12m"  # warn: visible amber tint
+    DOCS_CALLOUT_WARN_BORDER = "\033[38;2;200;160;48m"  # warn: bright amber
+    DOCS_CALLOUT_TIP_BG = "\033[38;2;12;34;16m"  # tip: visible green tint
+    DOCS_CALLOUT_TIP_BORDER = "\033[38;2;48;168;72m"  # tip: bright green
+    DOCS_CALLOUT_NOTE_BG = "\033[38;2;28;20;48m"  # note: visible purple tint
+    DOCS_CALLOUT_NOTE_BORDER = "\033[38;2;144;80;192m"  # note: bright purple
+    DIFF_HEADER_BG = "\033[38;2;128;222;255m"
+    DIFF_ADD_BG = "\033[38;2;0;200;0m"
+    DIFF_ADD_FG = "\033[38;2;126;224;126m"
+    DIFF_REMOVE_BG = "\033[38;2;255;60;60m"
+    DIFF_REMOVE_FG = "\033[38;2;224;126;126m"
+    DIFF_INFO_BG = "\033[38;2;0;120;255m"
+
+    # -- 9. DOC COMPONENT STATUS (9-state lifecycle) --
+    STATUS_SEED = "\033[38;2;90;90;90m"
+    STATUS_POC = "\033[38;2;139;90;139m"
+    STATUS_INIT = "\033[38;2;106;90;139m"
+    STATUS_CORE = "\033[38;2;184;134;58m"
+    STATUS_FEAT = "\033[38;2;90;122;156m"
+    STATUS_REFINE = "\033[38;2;156;140;74m"
+    STATUS_ALPHA = "\033[38;2;168;74;74m"
+    STATUS_BETA = "\033[38;2;122;90;156m"
+    STATUS_STABLE = "\033[38;2;74;140;106m"
+
+    # -- 10. DOC AGE --
+    AGE_HOT = "\033[38;2;74;140;106m"  # < 7 days
+    AGE_WARM = "\033[38;2;90;122;156m"  # 7-30 days
+    AGE_COLD = "\033[38;2;184;134;58m"  # 30-90 days
+    AGE_STALE = "\033[38;2;90;90;90m"  # > 90 days
+
+    # -- 11. API TESTER --
+    API_GET_BG = "\033[38;2;42;74;58m"
+    API_GET_TEXT = "\033[38;2;138;202;138m"
+    API_POST_BG = "\033[38;2;42;74;90m"
+    API_POST_TEXT = "\033[38;2;138;202;202m"
+    API_PATCH_BG = "\033[38;2;74;74;42m"
+    API_PATCH_TEXT = "\033[38;2;202;202;138m"
+    API_SSE_BG = "\033[38;2;58;58;90m"
+    API_SSE_TEXT = "\033[38;2;168;168;202m"
+    API_ERROR_BG = "\033[38;2;74;42;42m"
+    API_ERROR_TEXT = "\033[38;2;202;138;138m"
+    API_ERROR_HOVER = "\033[38;2;90;58;58m"
+    API_SSE_HOVER = "\033[38;2;74;74;106m"
+    API_NEUTRAL_HOVER = "\033[38;2;58;58;58m"
+    API_READER = "\033[38;2;74;122;138m"  # RMQ Reader
+    API_VALIDATOR = "\033[38;2;138;112;64m"  # Validator
+    API_TRANSFORMER = "\033[38;2;106;80;128m"  # Transformer
+    API_WRITER = "\033[38;2;74;122;90m"  # SQL Writer
+    API_STATUS_PENDING_BORDER = "\033[38;2;90;90;90m"
+    API_STATUS_RUNNING_BORDER = "\033[38;2;58;106;122m"
+    API_STATUS_RUNNING_GLOW = "\033[38;2;58;106;122m"
+    API_STATUS_SUCCESS_BORDER = "\033[38;2;74;122;90m"
+    API_STATUS_SUCCESS_GLOW = "\033[38;2;74;122;90m"
+    API_STATUS_ERROR_BORDER = "\033[38;2;168;74;74m"
+    API_STATUS_ERROR_GLOW = "\033[38;2;168;74;74m"
+    API_STATUS_SSE_BORDER = "\033[38;2;106;80;128m"
+    API_STATUS_SSE_GLOW = "\033[38;2;106;80;128m"
+
+    # -- 12. LOG LEVELS --
+    LOG_TRACE = "\033[38;2;132;124;132m"  # mauve
+    LOG_DEBUG = "\033[38;2;128;222;255m"  # cyan
+    LOG_INFO = "\033[38;2;144;238;144m"  # green
+    LOG_WARNING = "\033[38;2;255;208;103m"  # gold
+    LOG_ERROR = "\033[38;2;255;90;106m"  # red
+    LOG_CRITICAL = "\033[38;2;255;90;106m"  # red (same as error)
+    LOG_TIER_TRACE = "\033[38;2;118;118;118m"  # xterm 243, dark gray
+    LOG_TIER_DEBUG = "\033[38;2;95;135;175m"  # xterm 67, muted blue
+    LOG_TIER_INFO = "\033[38;2;95;175;95m"  # xterm 71, muted green
+    LOG_TIER_WARN = "\033[38;2;215;175;95m"  # xterm 179, muted yellow
+    LOG_TIER_ERROR = "\033[38;2;215;95;95m"  # xterm 167, muted red
+    LOG_TIER_CRITICAL = "\033[38;2;215;95;135m"  # xterm 168, muted magenta
+    LOG_TIER_TIMESTAMP = "\033[38;2;108;108;108m"  # xterm 242, timestamp column gray
+    LOG_TIER_HINT = "\033[38;2;108;108;108m"  # xterm 242, hint line gray
+    LOG_TIER_CATEGORY = "\033[38;2;215;95;95m"  # xterm 167, category name red
+    LOG_CSS_TRACE = "\033[38;2;102;102;102m"
+    LOG_CSS_DEBUG = "\033[38;2;156;163;175m"
+    LOG_CSS_INFO = "\033[38;2;0;204;0m"
+    LOG_CSS_WARNING = "\033[38;2;255;204;0m"
+    LOG_CSS_ERROR = "\033[38;2;204;0;0m"
+    LOG_CSS_CRITICAL = "\033[38;2;255;0;204m"
+
+    # -- 13. CHART / DATAVIZ --
+    CHART_RULE_PRIMARY = "\033[38;2;184;134;58m"
+    CHART_RULE_SECONDARY = "\033[38;2;42;42;42m"
+    CHART_RULE_TERTIARY = "\033[38;2;53;53;53m"
+    CHART_MARKER_PRIMARY = "\033[38;2;184;134;58m"
+    CHART_MARKER_SECONDARY = "\033[38;2;90;156;184m"
+    CHART_LABEL_NORMAL = "\033[38;2;74;90;90m"
+    CHART_BRIGHT_CYAN = "\033[38;2;0;255;255m"
+    CHART_BRIGHT_GREEN = "\033[38;2;0;255;136m"
+    CHART_BRIGHT_PURPLE = "\033[38;2;255;136;255m"
+    CHART_BRIGHT_YELLOW = "\033[38;2;255;255;0m"
+    CHART_BRIGHT_ORANGE = "\033[38;2;255;136;68m"
+    CHART_CANVAS_BG = "\033[38;2;26;26;46m"
+    CHART_CANVAS_GRID = "\033[38;2;102;102;102m"
+    CHART_CANVAS_BORDER = "\033[38;2;51;51;51m"
+    CHART_CANVAS_TEXT = "\033[38;2;136;136;136m"
+
+    # -- 14. 3D RENDERING --
+    RENDER_GRID_CELL = "\033[38;2;42;42;58m"  # grid cell (purple tint)
+    RENDER_GRID_SECTION = "\033[38;2;74;74;106m"  # grid section (purple tint)
+    RENDER_FOG = "\033[38;2;37;21;16m"  # fog color (brown-red)
+    RENDER_PLAYER_LOCAL = "\033[38;2;0;255;136m"  # local player (green)
+    RENDER_PLAYER_OTHER = "\033[38;2;68;136;255m"  # other player (blue)
+    RENDER_PLAYER_TEAM = "\033[38;2;255;170;0m"  # team/faction (orange)
+    RENDER_PLAYER_GENERIC = "\033[38;2;136;136;255m"  # generic (light blue)
+    RENDER_DEBUG_RED = "\033[38;2;255;0;0m"  # debug indicator
+    RENDER_EMISSIVE_LOCAL = "\033[38;2;0;51;34m"  # local player glow
+    RENDER_EMISSIVE_OTHER = "\033[38;2;0;0;34m"  # other player glow
+    RENDER_EMISSIVE_GRAY = "\033[38;2;68;68;68m"  # generic emissive
+    RENDER_WHITE = "\033[38;2;255;255;255m"  # white material
+    RENDER_BLACK = "\033[38;2;0;0;0m"  # outline black
+    RENDER_SKY_SUN = "\033[38;2;255;238;136m"  # sky/sun yellow
+    RENDER_MOON_BASE = "\033[38;2;221;221;255m"  # moon base color (blue-white)
+
+    # -- 15. ENTITY INSPECTOR --
+    ENTITY_VALUE_NAN = "\033[38;2;90;90;90m"  # NaN → gray
+    ENTITY_VALUE_NUMBER = "\033[38;2;74;140;106m"  # number → green
+    ENTITY_VALUE_TRUE = "\033[38;2;74;140;106m"  # bool true → green
+    ENTITY_VALUE_FALSE = "\033[38;2;168;74;74m"  # bool false → red
+    ENTITY_VALUE_STRING = "\033[38;2;184;134;58m"  # string → orange
+    ENTITY_VALUE_DEFAULT = "\033[38;2;154;154;154m"  # fallback → gray
+    ENTITY_TAG_BG = "\033[38;2;138;92;184m"  # tag purple bg
+    ENTITY_TAG_TEXT = "\033[38;2;184;136;216m"  # tag purple text
+
+    # -- 16. SHADOWS & OVERLAYS --
+    SHADOW_SM = "\033[38;2;0;0;0m"
+    SHADOW_MD = "\033[38;2;0;0;0m"
+    SHADOW_LG = "\033[38;2;0;0;0m"
+    SHADOW_XL = "\033[38;2;0;0;0m"
+    OVERLAY_NAV = "\033[38;2;10;10;10m"
+    OVERLAY_MERMAID = "\033[38;2;42;42;42m"
+    OVERLAY_WHITE_MIN = "\033[38;2;255;255;255m"
+    OVERLAY_WHITE_LIGHT = "\033[38;2;255;255;255m"
+    OVERLAY_GRAY_ANIM = "\033[38;2;90;90;90m"
+    OVERLAY_LIGHTBOX = "\033[38;2;0;0;0m"
+    OVERLAY_GREEN_LIGHT = "\033[38;2;74;140;106m"
+    OVERLAY_GREEN_MED = "\033[38;2;74;140;106m"
+
+    # -- 18. BOOTSTRAP LOGGER (console.log styles) --
+    BOOT_CYAN = "\033[38;2;0;206;209m"
+    BOOT_GREEN = "\033[38;2;50;205;50m"
+    BOOT_YELLOW = "\033[38;2;255;215;0m"
+    BOOT_GRAY = "\033[38;2;128;128;128m"
+    BOOT_MAGENTA = "\033[38;2;255;0;255m"
+
+    # -- 19. GLYPH DEBUG (SVG debug overlay — path distinction + debug UI) --
+    GLYPH_DBG_RED = "\033[38;2;255;51;51m"  # debug path 1
+    GLYPH_DBG_GREEN = "\033[38;2;51;204;51m"  # debug path 2
+    GLYPH_DBG_BLUE = "\033[38;2;51;136;255m"  # debug path 3
+    GLYPH_DBG_ORANGE = "\033[38;2;255;170;0m"  # debug path 4
+    GLYPH_DBG_PURPLE = "\033[38;2;204;68;255m"  # debug path 5
+    GLYPH_DBG_CYAN = "\033[38;2;0;204;204m"  # debug path 6
+    GLYPH_DBG_BG = "\033[38;2;10;10;15m"  # debug view background (blue-black)
+    GLYPH_DBG_CARD_BG = "\033[38;2;17;17;24m"  # debug card background (blue-black)
+    GLYPH_DBG_CARD_BORDER = "\033[38;2;34;34;34m"  # debug card border
+    GLYPH_DBG_TEXT = "\033[38;2;204;204;204m"  # debug body text
+    GLYPH_DBG_HEADING = "\033[38;2;136;136;136m"  # debug heading
+    GLYPH_DBG_LABEL = "\033[38;2;102;102;102m"  # debug label
+
+    # -- 20. CMS PORTAL --
+    CMS_HERO_OVERLAY = "\033[38;2;4;4;4m"
+    CMS_HERO_TEXT = "\033[38;2;255;255;255m"  # hero heading white
+    CMS_CARD_BG = "\033[38;2;10;10;10m"
+    CMS_CARD_BORDER = "\033[38;2;26;26;26m"
+    CMS_CARD_HOVER = "\033[38;2;18;18;18m"
+    CMS_NAV_ACTIVE_BG = "\033[38;2;90;156;184m"  # nav item active bg
+    CMS_NAV_ACTIVE = "\033[38;2;127;29;30m"  # nav active entry text + border
+    CMS_NAV_PIN = "\033[38;2;127;29;30m"  # pin button (pinned state)
+    CMS_NAV_TOGGLE = "\033[38;2;127;29;30m"  # folder-open / caret sidebar toggle
+    CMS_HEADER_LABEL = "\033[38;2;74;140;106m"  # "ASE PORTAL" header label
+    CMS_HEADER_BADGE = "\033[38;2;74;140;106m"  # PAGES badge
+    CMS_SCROLL_PROGRESS = "\033[38;2;127;29;30m"  # scroll progress bar
+    CMS_SPINNER = "\033[38;2;127;29;30m"  # loading spinner
+    CMS_PATH_ARROW = "\033[38;2;90;156;184m"  # path trace arrows (cyan)
+    CMS_PATH_CURRENT = "\033[38;2;127;29;30m"  # current page label + icon
+    CMS_TITLE = "\033[38;2;127;29;30m"  # h1 page title
+    CMS_CROSSREF = "\033[38;2;127;29;30m"  # internal cross-reference links
+    CMS_GLOSSARY_TITLE = "\033[38;2;127;29;30m"  # glossary tooltip title
+    CMS_CODEFILE_HEADER = "\033[38;2;127;29;30m"  # code file block header
+    CMS_TAB_ACTIVE = "\033[38;2;127;29;30m"  # active tab border
+    CMS_TOC_ACTIVE = "\033[38;2;127;29;30m"  # active heading in ToC
+    CMS_STEPS_NUMBER = "\033[38;2;127;29;30m"  # step number circles
+    CMS_TIMELINE_DOT = "\033[38;2;127;29;30m"  # timeline dots + icons
+    CMS_CHANGELOG_ICON = "\033[38;2;127;29;30m"  # changelog version icons
+    CMS_CARD_LINK = "\033[38;2;127;29;30m"  # card footer links
+    CMS_AUTHOR_BORDER = "\033[38;2;127;29;30m"  # author/team avatar border
+    CMS_COMPARE_HIGHLIGHT = "\033[38;2;127;29;30m"  # compare column highlight border
+    CMS_ACCORDION_ICON = "\033[38;2;127;29;30m"  # accordion chevron icon
+    CMS_CALLOUT_ACCENT = "\033[38;2;127;29;30m"  # callout accent color
+    CMS_QUOTE_ACCENT = "\033[38;2;127;29;30m"  # quote left border + source link
+    CMS_MATRIX_ACCENT = "\033[38;2;127;29;30m"  # matrix icon + header
+    CMS_STATS_ACCENT = "\033[38;2;127;29;30m"  # stats block accent
+    CMS_BADGE_ACCENT = "\033[38;2;127;29;30m"  # badge inline accent
+    CMS_PREVIEW_HOVER = "\033[38;2;127;29;30m"  # preview leaf hover
+    CMS_DOWNLOAD_HOVER = "\033[38;2;127;29;30m"  # download leaf hover
+    CMS_TOOLTIP_ACCENT = "\033[38;2;127;29;30m"  # inline tooltip accent
+    CMS_CATEGORY_FEAT = "\033[38;2;127;29;30m"  # feat category color
+    CMS_MAP_ROOT = "\033[38;2;127;29;30m"  # constellation map root nodes
+    CMS_TOC_LINK = "\033[38;2;72;79;88m"  # muted for inactive
+    CMS_WIKI_LINK = "\033[38;2;167;139;250m"  # purple for wiki links
+    CMS_FIGURE_CAPTION = "\033[38;2;99;108;118m"  # muted caption text
+    CMS_COLUMN_DIVIDER = "\033[38;2;26;26;26m"  # subtle column separator
+    CMS_GLOSSARY_UNDERLINE = "\033[38;2;72;79;88m"  # dotted underline for terms
+    CMS_GLOSSARY_BG = "\033[38;2;26;26;26m"  # tooltip background
+    CMS_GLOSSARY_BORDER = "\033[38;2;42;42;42m"  # tooltip border
+    CMS_LANG_ACTIVE = "\033[38;2;127;29;30m"  # dark Antares red (active lang)
+    CMS_LANG_INACTIVE = "\033[38;2;72;79;88m"  # inactive language button
+    CMS_VERSION_BG = "\033[38;2;18;18;18m"  # version badge bg
+    CMS_VERSION_TEXT = "\033[38;2;99;108;118m"  # version badge text
+    CMS_ERROR_WARN = "\033[38;2;240;160;32m"  # content-missing heading (amber)
+    CMS_ERROR_HEADING = "\033[38;2;240;64;64m"  # network/unavailable heading (red)
+    CMS_ERROR_DETAIL = "\033[38;2;102;102;102m"  # error detail text
+    CMS_CALLOUT_CYAN_BG = "\033[38;2;90;156;184m"
+    CMS_CALLOUT_GREEN_BG = "\033[38;2;74;140;106m"
+    CMS_CALLOUT_ORANGE_BG = "\033[38;2;184;134;58m"
+    CMS_CALLOUT_PURPLE_BG = "\033[38;2;122;90;156m"
+    CMS_CALLOUT_RED_BG = "\033[38;2;168;74;74m"
+    CMS_CALLOUT_YELLOW_BG = "\033[38;2;156;140;74m"
+    CMS_BADGE_CYAN_BG = "\033[38;2;90;156;184m"
+    CMS_BADGE_GREEN_BG = "\033[38;2;74;140;106m"
+    CMS_BADGE_ORANGE_BG = "\033[38;2;184;134;58m"
+    CMS_BADGE_PURPLE_BG = "\033[38;2;122;90;156m"
+    CMS_BADGE_RED_BG = "\033[38;2;168;74;74m"
+    CMS_BADGE_YELLOW_BG = "\033[38;2;156;140;74m"
+    CMS_ACCORDION_BG = "\033[38;2;10;16;18m"  # accordion body: teal tint
+    CMS_ACCORDION_HEADER_BG = "\033[38;2;14;20;22m"  # accordion header: teal brighter
+    CMS_TABS_BG = "\033[38;2;10;14;18m"  # tab panel: blue-teal tint
+    CMS_TABS_HEADER_BG = "\033[38;2;14;18;22m"  # tab bar: blue-teal brighter
+    CMS_STEPS_BG = "\033[38;2;10;18;16m"  # steps connector: teal-green tint
+    CMS_TOC_BG = "\033[38;2;10;16;20m"  # table of contents: teal tint
+    CMS_TIMELINE_BG = "\033[38;2;12;18;16m"  # timeline container: teal-green tint
+    CMS_TERMINAL_BG = "\033[38;2;8;12;14m"  # terminal body: dark blue-green
+    CMS_TERMINAL_HEADER_BG = "\033[38;2;14;18;20m"  # terminal title bar: blue-green brighter
+    CMS_CODE_BG = "\033[38;2;10;12;20m"  # code file body: blue tint
+    CMS_CODE_HEADER_BG = "\033[38;2;16;18;26m"  # code file header: blue brighter
+    CMS_EMBED_BG = "\033[38;2;10;12;18m"  # embed container: steel-blue tint
+    CMS_EMBED_HEADER_BG = "\033[38;2;14;16;22m"  # embed title bar: steel-blue brighter
+    CMS_KBD_BG = "\033[38;2;18;18;26m"  # keyboard shortcut: blue-gray tint
+    CMS_KBD_BORDER = "\033[38;2;42;42;58m"  # keyboard border: blue-gray
+    CMS_MATRIX_BG = "\033[38;2;10;14;10m"  # matrix table: green tint
+    CMS_MATRIX_HEADER_BG = "\033[38;2;14;20;14m"  # matrix header: green brighter
+    CMS_STATS_BG = "\033[38;2;10;14;12m"  # stats card: green-teal tint
+    CMS_CHANGELOG_BG = "\033[38;2;12;14;10m"  # changelog container: olive-green tint
+    CMS_COMPARE_BG = "\033[38;2;10;14;12m"  # compare option: green-teal tint
+    CMS_AUDIO_BG = "\033[38;2;14;10;18m"  # audio container: purple tint
+    CMS_AUDIO_HEADER_BG = "\033[38;2;18;16;26m"  # audio header: purple brighter
+    CMS_VIDEO_BG = "\033[38;2;12;10;18m"  # video container: purple tint
+    CMS_VIDEO_HEADER_BG = "\033[38;2;16;16;24m"  # video header: purple brighter
+    CMS_GALLERY_BG = "\033[38;2;10;10;16m"  # gallery cell: indigo tint
+    CMS_TOOLTIP_BG = "\033[38;2;16;16;24m"  # tooltip popup: purple-gray tint
+    CMS_QUOTE_BG = "\033[38;2;16;14;10m"  # quote body: warm amber tint
+    CMS_ASIDE_BG = "\033[38;2;18;14;10m"  # aside body: warm amber tint
+    CMS_ASIDE_TITLE_BG = "\033[38;2;26;20;14m"  # aside title bar: amber brighter
+    CMS_AUTHOR_BG = "\033[38;2;16;14;12m"  # author card: warm tint
+    CMS_COLUMN_BG = "\033[38;2;12;12;12m"  # column cell: neutral
+    CMS_TEAM_BG = "\033[38;2;12;12;14m"  # team member card: slight blue-neutral
+    CMS_DOWNLOAD_BG = "\033[38;2;10;12;14m"  # download button: subtle blue tint
+    CMS_PREVIEW_BG = "\033[38;2;10;12;14m"  # preview card: subtle blue tint
+    CMS_PROGRESS_TRACK_BG = "\033[38;2;12;12;14m"  # progress bar track: subtle blue-neutral
+    CMS_DIVIDER = "\033[38;2;42;42;42m"  # horizontal divider gradient center
+    CMS_LANDING_GRAD_MID = "\033[38;2;2;2;8m"  # gradient 40% (deep blue-black)
+    CMS_LANDING_GRAD_END = "\033[38;2;4;4;15m"  # gradient 100% (dark indigo)
+    CMS_LANDING_OVERLAY_80 = "\033[38;2;0;0;0m"  # top overlay start
+    CMS_LANDING_OVERLAY_30 = "\033[38;2;0;0;0m"  # top overlay fade
+    CMS_LANDING_OVERLAY_85 = "\033[38;2;0;0;0m"  # bottom overlay start
+    CMS_LANDING_OVERLAY_40 = "\033[38;2;0;0;0m"  # bottom overlay fade
+    CMS_STAR_WHITE = "\033[38;2;232;228;220m"  # star base (warm white like gate)
+    CMS_STAR_WARM = "\033[38;2;204;184;144m"  # star twinkle warm layer
+    CMS_CONSTELLATION_LINE = "\033[38;2;232;228;220m"  # constellation link
+    CMS_CONSTELLATION_GLOW = "\033[38;2;90;156;184m"  # hover glow (cyan)
+    CMS_NODE_LABEL = "\033[38;2;200;200;200m"  # node label text
+    CMS_MAP_TOOLTIP_BG = "\033[38;2;10;10;10m"  # map tooltip background
+    CMS_MENU_RED = "\033[38;2;127;29;30m"  # gate accent red
+    CMS_CRAWL_TITLE = "\033[38;2;127;29;30m"  # Antares red (title + subtitle)
+    CMS_CRAWL_HEADING = "\033[38;2;224;160;96m"  # warm orange (section headings)
+    CMS_CRAWL_COPYRIGHT = "\033[38;2;224;160;96m"  # warm orange (footer, very dim via opacity)
+
+    # -- 21. STELLARIUM ANTARAE — BBoL Constellation Colors --
+    STLR_GLOW_VITAL = "\033[38;2;255;0;0m"  # BBoL VITAL — Life Spark
+    STLR_GLOW_STRUC = "\033[38;2;0;68;255m"  # BBoL STRUC — Structure (brightened from #0000FF)
+    STLR_GLOW_COSMI = "\033[38;2;64;64;176m"  # BBoL COSMI — Cosmic (brightened from #191970)
+    STLR_GLOW_MUTAR = "\033[38;2;139;0;255m"  # BBoL MUTAR — Transformation
+    STLR_GLOW_COGNI = "\033[38;2;0;255;0m"  # BBoL COGNI — Cognition
+    STLR_GLOW_SOCIA = "\033[38;2;0;255;255m"  # BBoL SOCIA — Social
+    STLR_GLOW_FLUXO = "\033[38;2;255;140;0m"  # BBoL FLUXO — Energy
+    STLR_GLOW_SENSO = "\033[38;2;255;255;0m"  # BBoL SENSO — Senses
+    STLR_GLOW_TEMPO = "\033[38;2;255;0;255m"  # BBoL TEMPO — Time
+    STLR_GLOW_TERRA = "\033[38;2;160;101;42m"  # BBoL TERRA — Terrain (brightened from #8B4513)
+    STLR_GLOW_COMBA = "\033[38;2;220;20;60m"  # BBoL COMBA — Combat
+    STLR_GLOW_ENTRO = "\033[38;2;160;160;160m"  # BBoL ENTRO — Entropy (brightened from #808080)
+    STLR_GLOW_NOBIL = "\033[38;2;255;215;0m"  # BBoL NOBIL — Noble
+    STLR_BASE_VITAL = "\033[38;2;168;74;74m"  # PANEL_RED
+    STLR_BASE_STRUC = "\033[38;2;90;156;184m"  # PANEL_CYAN
+    STLR_BASE_COSMI = "\033[38;2;122;90;156m"  # PANEL_PURPLE
+    STLR_BASE_MUTAR = "\033[38;2;122;90;156m"  # PANEL_PURPLE
+    STLR_BASE_COGNI = "\033[38;2;74;140;106m"  # PANEL_GREEN
+    STLR_BASE_SOCIA = "\033[38;2;90;156;184m"  # PANEL_CYAN
+    STLR_BASE_FLUXO = "\033[38;2;184;134;58m"  # PANEL_ORANGE
+    STLR_BASE_SENSO = "\033[38;2;156;140;74m"  # PANEL_YELLOW
+    STLR_BASE_TEMPO = "\033[38;2;122;90;156m"  # PANEL_PURPLE
+    STLR_BASE_TERRA = "\033[38;2;184;134;58m"  # PANEL_ORANGE
+    STLR_BASE_COMBA = "\033[38;2;168;74;74m"  # PANEL_RED
+    STLR_BASE_ENTRO = "\033[38;2;156;140;74m"  # PANEL_YELLOW
+    STLR_BASE_NOBIL = "\033[38;2;156;140;74m"  # PANEL_YELLOW
+    STLR_GLOW_VITAL_A = "\033[38;2;255;0;0m"
+    STLR_GLOW_STRUC_A = "\033[38;2;0;68;255m"
+    STLR_GLOW_COSMI_A = "\033[38;2;64;64;176m"
+    STLR_GLOW_MUTAR_A = "\033[38;2;139;0;255m"
+    STLR_GLOW_COGNI_A = "\033[38;2;0;255;0m"
+    STLR_GLOW_SOCIA_A = "\033[38;2;0;255;255m"
+    STLR_GLOW_FLUXO_A = "\033[38;2;255;140;0m"
+    STLR_GLOW_SENSO_A = "\033[38;2;255;255;0m"
+    STLR_GLOW_TEMPO_A = "\033[38;2;255;0;255m"
+    STLR_GLOW_TERRA_A = "\033[38;2;160;101;42m"
+    STLR_GLOW_COMBA_A = "\033[38;2;220;20;60m"
+    STLR_GLOW_ENTRO_A = "\033[38;2;160;160;160m"
+    STLR_GLOW_NOBIL_A = "\033[38;2;255;215;0m"
+
+    # -- 22. SYNTAX HIGHLIGHT (vscDarkPlus — react-syntax-highlighter) --
+    SYN_DEFAULT = "\033[38;2;212;212;212m"  # default text + operator + punctuation
+    SYN_KEYWORD = "\033[38;2;86;156;214m"  # keyword, tag, boolean, doctype-tag
+    SYN_TYPE = "\033[38;2;78;201;176m"  # class-name, namespace
+    SYN_STRING = "\033[38;2;206;145;120m"  # string, char, attr-value, builtin
+    SYN_NUMBER = "\033[38;2;181;206;168m"  # number, symbol, inserted, unit
+    SYN_COMMENT = "\033[38;2;106;153;85m"  # comment, prolog
+    SYN_FUNCTION = "\033[38;2;220;220;170m"  # function, function.maybe-class-name
+    SYN_VARIABLE = "\033[38;2;156;220;254m"  # variable, parameter, constant, property, attr-name
+    SYN_PREPROC = "\033[38;2;197;134;192m"  # atrule.rule, keyword.module, keyword.control-flow
+    SYN_REGEX = "\033[38;2;209;105;105m"  # regex literals
+    SYN_SELECTOR = "\033[38;2;215;186;125m"  # CSS selectors, escape sequences
+    SYN_PUNCT_MUTED = "\033[38;2;128;128;128m"  # tag.punctuation, cdata, html.punctuation
+
+    # -- Terminal Shorthand Aliases --
+    RED = TERM_RED
+    ORANGE = TERM_ORANGE
+    YELLOW = TERM_YELLOW
+    GREEN = TERM_GREEN
+    CYAN = TERM_CYAN
+    PURPLE = TERM_PURPLE
+    PINK = TERM_PINK
+    TEXT = TEXT_PRIMARY
+    MUTED = TEXT_MUTED
+    GRAY = TEXT_LABEL
+
+    # -- Legacy Aliases --
+    BLUE = CYAN
+    MAGENTA = PURPLE
+    WHITE = TEXT

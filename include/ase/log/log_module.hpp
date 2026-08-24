@@ -1,12 +1,37 @@
 #pragma once
 
 /**
- * LogModule - Bevy-style module for logging initialization
+ * ASE MODULE DEFINITION
  *
- * Usage:
- *   ecs::App()
- *       .add_module<LogModule>()
- *       .run();
+ * @file        log_module.hpp
+ * @brief       LogModule - registers the logging systems with the scheduler
+ * @description Brings up logging for a running app: the sinks, the ring buffer
+ *              and the console writer. LogConfig carries the destination and is
+ *              placed in ctx() BEFORE the module is added, because the sinks are
+ *              opened while the module builds.
+ *
+ *              Usage:
+ *                app.world().registry().ctx().emplace<LogConfig>("logs/engine.log");
+ *                app.add_module<LogModule>();
+ *
+ * @module      ase-log
+ * @layer       1 (Core)
+ * @created     2026-01-09
+ * @modified    2026-08-20
+ * @version     1.1.0
+ *
+ * ECS MODULE/PLUGIN DEFINITION COMPLIANCE
+ *
+ * [ ] name() returns correct name (ase-{module} or ase-pl-{plugin})
+ * [ ] build() registers all systems in correct schedules
+ * [ ] Startup systems registered first (run once at start)
+ * [ ] Initialization systems registered (entity creation)
+ * [ ] Integration/Dynamics systems registered with run_after() ordering
+ * [ ] Transmission systems registered (network sync)
+ * [ ] Preservation systems registered (database writes)
+ * [ ] Finalization systems registered (cleanup)
+ * [ ] All system includes present
+ * [ ] No circular dependencies
  */
 
 #include <ase/ecs/app.hpp>

@@ -1,0 +1,65 @@
+{
+  "_comment": "Anzeige-Politik der Log-Darstellung - die EINE Quelle jedes Anzeige-Parameters des Log-Datensatzes. Farben stehen hier als NAMEN der SHA-Palette; die WERTE-SSOT ist clients/sha-client-web/sha-web-styles/src/colors.ts, deren Generator (sha-web-console/generate-colors.cjs, Teil des SHA-Baus) eine lokale Kopie nach core/ase-log/data/generated/colors.py verteilt - Down-Top, kein Cross-Subgit-Import, keine Fallback-Defaults: ein fehlender Schluessel oder ein Name ausserhalb der Palette bricht den Generatorlauf laut. Gelesen von gen_log_cat.py; alles hier landet ausschliesslich in GENERIERTEN .cpp-Dateien oder wird zur Laufzeit komponiert, nie in einem Header - eine Aenderung an dieser Datei ist deshalb IMMER ein Generatorlauf plus ein Ein-Datei-Recompile, nie ein Baum-Rebuild; eine FARBAENDERUNG lebt in colors.ts und braucht den SHA-Generatorlauf davor. short_max_columns: harte Obergrenze jedes short-Textes (Kopfzeile, darf nie umbrechen; Generator bricht laut). hint_line_indent und hint_color: Einzug und Farbe der hint-Zeile, die der Tail als eigene physische Zeile traegt. timestamp_color: das Grau der Zeitstempelspalte; log_sys.cpp komponiert seine Muster zur Laufzeit daraus. category_color: die Farbe des Kategorienamens im Datensatz. level_colors: die Farbe je Level-Tag (ColoredLevelFlag). text_colors: die semantischen Rollenfarben der Konsolen-Textfaerbung. outcome_good_words und outcome_bad_words: die Woerter, die als Ergebnis gefaerbt werden - in voller UND gekuerzter Form, weil die Faerbung NACH der Kuerzung laeuft. literal_identifiers: vom Fliesstext-Tor ausgenommene Bezeichner. fillers: Fuellwoerter, die eine Konsole streichen darf. extra_words: Anzeige-Wortschatz der Konsolen-Prosa; der Generator vereinigt ihn mit dem Vokabular aller short- und hint-Texte, loest jedes Wort gegen die Taxonomie-SSOT auf (Mehrheitsregel, Ties bleiben ausgeschrieben, Mindest-Ersparnis min_saving).",
+  "short_max_columns": 44,
+  "min_saving": 2,
+  "hint_line_indent": 4,
+  "hint_color": "LOG_TIER_HINT",
+  "timestamp_color": "LOG_TIER_TIMESTAMP",
+  "category_color": "LOG_TIER_CATEGORY",
+  "level_colors": {
+    "trace": "LOG_TIER_TRACE",
+    "debug": "LOG_TIER_DEBUG",
+    "info": "LOG_TIER_INFO",
+    "warn": "LOG_TIER_WARN",
+    "error": "LOG_TIER_ERROR",
+    "critical": "LOG_TIER_CRITICAL"
+  },
+  "text_colors": {
+    "string": "SYN_STRING",
+    "number": "SYN_NUMBER",
+    "url": "SYN_VARIABLE",
+    "path": "SYN_SELECTOR",
+    "tag": "PANEL_CYAN",
+    "good": "SUCCESS_TEXT",
+    "bad": "ERROR_TEXT",
+    "punct": "SYN_PUNCT_MUTED"
+  },
+  "outcome_good_words": [
+    "ok", "ready", "rdy", "cntd", "connected", "unsealed", "unsl", "granted", "valid", "vld",
+    "sgnd", "signed"
+  ],
+  "outcome_bad_words": [
+    "fail", "failed", "failure", "error", "err", "denied", "unrc", "unreachable", "dcnt",
+    "disconnected", "timeout", "cant", "cannot", "invalid", "invl", "abrt", "aborted", "miss",
+    "missing", "unkn", "unknown", "sealed"
+  ],
+  "literal_identifiers": ["on_start()", ".run_after()", ".env", "value_id"],
+  "fillers": ["the", "a", "an", "this", "that", "these", "those", "its"],
+  "extra_words": [
+    "vaultjwtsigner", "disconnected", "development", "reconnected", "unreachable", "unsupported",
+    "capability", "configured", "connecting", "connection", "constraint", "definition",
+    "identifier", "passphrase", "permission", "production", "subcommand", "underscore",
+    "announced", "anonymous", "cancelled", "clearance", "completed", "component", "configure",
+    "connected", "destroyed", "exhausted", "existence", "malformed", "presented", "reconnect",
+    "recording", "reference", "rejection", "releasing", "signature", "structure", "transport",
+    "websocket", "scheduled", "appended", "capacity", "captured", "category", "commands",
+    "contract", "dangling", "decision", "expected", "finished", "function", "generate",
+    "identity", "inserted", "manifest", "negative", "operator", "optional", "override",
+    "pinentry", "presence", "previous", "priority", "producer", "protocol", "provider",
+    "registry", "rejected", "released", "required", "resource", "retrying", "returned",
+    "scdaemon", "silently", "snapshot", "starting", "topology", "variable", "aborted",
+    "already", "approle", "arrived", "between", "capture", "cleared", "command", "confirm",
+    "connect", "console", "correct", "created", "decoded", "default", "exceeds", "failure",
+    "invalid", "letters", "maximum", "message", "missing", "partial", "payload", "playing",
+    "present", "proceed", "project", "reaches", "reduced", "removed", "replica", "request",
+    "restart", "restore", "running", "signing", "unknown", "version", "visible", "warning",
+    "yubikey", "aborts", "active", "before", "belong", "buffer", "cached", "cannot", "create",
+    "decide", "detail", "digits", "engine", "entity", "failed", "finish", "global", "handle",
+    "holder", "insert", "length", "likely", "loaded", "method", "module", "needed", "number",
+    "output", "plugin", "record", "reject", "remove", "result", "secret", "sender", "signed",
+    "source", "status", "stored", "stream", "switch", "system", "target", "after", "agent",
+    "built", "check", "class", "clear", "drain", "error", "field", "first", "found", "input",
+    "level", "means", "queue", "range", "ready", "token", "touch", "trail", "valid", "value",
+    "vault", "write"
+  ]
+}

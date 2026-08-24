@@ -1,21 +1,50 @@
 #pragma once
 
 /**
- * ASE Module Color Catalog - SSOT for all module/plugin colors
+ * ASE CORE INFRASTRUCTURE HEADER
  *
- * Used by:
- * - Boot sequence (app.cpp)
- * - Log systems (*LogCausalitySystem)
- * - Any UI/visualization that needs module identification
+ * @file        colors.hpp
+ * @brief       SSOT for the terminal colour of every module and plugin
+ * @description One 256-colour ANSI code per unit, grouped by layer, plus the
+ *              lookup that turns a module name into its code. Everything that
+ *              prints a module name reads it from here, so a unit has the same
+ *              colour in the boot sequence, in a log line and in any tool that
+ *              renders the tree.
  *
- * Colors use 256-color ANSI palette for consistent terminal rendering.
- * Format: \x1b[38;5;XXXm where XXX is the color code (0-255)
+ *              Colours use the 256-colour palette for consistent terminal
+ *              rendering: \x1b[38;5;XXXm where XXX is 0-255.
  *
- * Total: 90+ modules across all layers
+ *              Used by: the boot sequence (app.cpp), the log systems, and any
+ *              visualisation that needs to identify a module.
+ *
+ * @module      ase-log
+ * @layer       1 (Core)
+ * @category    ecs/module
+ * @created     2026-01-09
+ * @modified    2026-08-20
+ * @version     1.1.0
+ *
+ * CORE INFRASTRUCTURE COMPLIANCE
+ *
+ * [ ] NOT an ECS Component or System
+ * [ ] Layer dependencies correct (L0: no ASE deps, L1: L0 only)
+ * [ ] No global mutable state (constexpr/const only)
+ * [ ] No singletons or static mutable variables
+ * [ ] Thread-safe by design (pure functions or explicit mutex)
+ * [ ] All public functions documented with @brief, @param, @return
+ * [ ] constexpr where possible (compile-time evaluation)
+ * [ ] noexcept where possible (no-throw guarantee)
+ * [ ] [[nodiscard]] on functions returning values
+ * [ ] No magic numbers (use named constants)
+ * [ ] No implicit conversions (use explicit constructors)
+ * [ ] Header-only OR header+cpp pattern (not mixed)
+ * [ ] Include guards via #pragma once
+ * [ ] Namespace matches module: ase::{module}
+ * [ ] No circular dependencies
+ * [ ] No macros (except include guards) - use constexpr/templates
+ * [ ] API stable (changes require version bump)
  */
 
-#include <string_view>
-#include <cstdint>
 #include <string>
 
 namespace ase::log {
@@ -183,11 +212,19 @@ constexpr int UNKNOWN        = 250;  // Light gray
 
 /**
  * Get ANSI color code for a module name
- * @param module_name The module name (e.g., "ase-terrain", "ase-pl-sky")
+ * @param module_name_cstr The module name (e.g., "ase-terrain", "ase-pl-sky")
  * @return 256-color palette code
+ *
+ * Takes a C string, not a std::string_view: the type is on the forbidden list
+ * for core headers. The name is copied into a std::string once, so the ninety
+ * comparisons below keep comparing VALUES - with a bare const char* every one
+ * of them would silently become a pointer comparison and always be false.
+ * One allocation per call, on a path that runs at boot and shutdown.
  */
-inline int get_module_color_code(std::string_view module_name) {
+inline int get_module_color_code(const char* module_name_cstr) {
     using namespace module_colors;
+
+    std::string module_name(module_name_cstr != nullptr ? module_name_cstr : "");
 
     // Strip "ase-" prefix for comparison if present
     if (module_name.starts_with("ase-")) {
@@ -353,7 +390,8 @@ inline int get_module_color_code(std::string_view module_name) {
  * @param module_name The module name (e.g., "ase-terrain")
  * @return Formatted string with color codes
  */
-inline std::string format_module_colored(std::string_view module_name) {
+inline std::string format_module_colored(const char* module_name_cstr) {
+    const char* module_name = (module_name_cstr != nullptr) ? module_name_cstr : "";
     int color = get_module_color_code(module_name);
     return "\x1b[38;5;" + std::to_string(color) + "m[" + std::string(module_name) + "]\x1b[0m";
 }
