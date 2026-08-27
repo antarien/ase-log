@@ -123,6 +123,7 @@ class C:
     TERM_YELLOW = "\033[38;2;255;204;0m"
     TERM_GREEN = "\033[38;2;0;204;0m"
     TERM_CYAN = "\033[38;2;0;204;204m"
+    TERM_BLUE = "\033[38;2;0;136;255m"
     TERM_PURPLE = "\033[38;2;170;0;255m"
     TERM_PINK = "\033[38;2;255;0;204m"
 
@@ -229,6 +230,17 @@ class C:
     LOG_TIER_TIMESTAMP = "\033[38;2;108;108;108m"  # xterm 242, timestamp column gray
     LOG_TIER_HINT = "\033[38;2;108;108;108m"  # xterm 242, hint line gray
     LOG_TIER_CATEGORY = "\033[38;2;215;95;95m"  # xterm 167, category name red
+    CONSOLE_BAND_WORLD = "\033[38;2;12;34;16m"  # world: green tint
+    CONSOLE_BAND_ENGINE = "\033[38;2;8;24;46m"  # engine: blue tint, green well under blue
+    CONSOLE_BAND_REPLICA = "\033[38;2;10;46;46m"  # replica: cyan tint, green equal to blue
+    CONSOLE_BAND_REASONING = "\033[38;2;28;20;48m"  # reasoning: purple tint
+    CONSOLE_BAND_DIST = "\033[38;2;42;30;12m"  # dist: amber tint
+    CONSOLE_BAND_EDGE = "\033[38;2;42;12;34m"  # edge: magenta tint
+    CONSOLE_BAND_FOOTER = "\033[38;2;36;36;36m"  # footer: neutral dark gray, visibly above black
+    CONSOLE_BAND_ARMED = "\033[38;2;46;10;10m"  # footer armed: dark near-black red
+    CONSOLE_TREND_GOOD = "\033[38;2;95;175;95m"  # the figure moved the way you want it to
+    CONSOLE_TREND_BAD = "\033[38;2;215;95;95m"  # the figure moved the wrong way
+    CONSOLE_TREND_FLAT = "\033[38;2;108;108;108m"  # inside the dead band: standing still, said quietly
     LOG_CSS_TRACE = "\033[38;2;102;102;102m"
     LOG_CSS_DEBUG = "\033[38;2;156;163;175m"
     LOG_CSS_INFO = "\033[38;2;0;204;0m"
@@ -487,6 +499,13 @@ class C:
     SYN_REGEX = "\033[38;2;209;105;105m"  # regex literals
     SYN_SELECTOR = "\033[38;2;215;186;125m"  # CSS selectors, escape sequences
     SYN_PUNCT_MUTED = "\033[38;2;128;128;128m"  # tag.punctuation, cdata, html.punctuation
+
+    # -- 23. GEOID NET — the facts a lattice cell can carry --
+    GEOID_TRAIL_FRESH = "\033[38;2;170;0;255m"  # walked and lingered on, rung MARK
+    GEOID_TRAIL_ZONE = "\033[38;2;0;204;0m"  # the walked cell became something lasting
+    GEOID_TRAIL_RAISED = "\033[38;2;255;0;204m"  # raised out of no man's land, rung not yet named
+    GEOID_PENTAGON_MARK = "\033[38;2;0;136;255m"  # the twelve pentagons: geometry, not a state
+    GEOID_ABSENT_ROW = "\033[38;2;47;69;80m"  # cells stand, no measurement was delivered
 
     # -- Terminal Shorthand Aliases --
     RED = TERM_RED
