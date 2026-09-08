@@ -39,10 +39,10 @@
 #   stable = Production ready (set manually)
 #
 # ==============================================================================
-ASE_LOG=00.01.22.00072
+ASE_LOG=00.01.33.00083
 ASE_LOG_NAME=Logging
 ASE_LOG_DESC=Structured logging with spdlog
 ASE_LOG_LAYER=1
 ASE_LOG_STATUS=feat
 ASE_LOG_CREATED=2025-12-15
-ASE_LOG_UPDATED=2026-07-19
+ASE_LOG_UPDATED=2026-09-08

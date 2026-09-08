@@ -11,8 +11,8 @@ ASE CORE BUILD CONFIGURATION
 @module      ase-log
 @layer       1 (Core)
 @created     2025-12-15
-@modified    2026-01-30
-@version     00.00.20.00020 [init]
+@modified    2026-09-08
+@version     00.01.33.00083 [feat]
 
 CMAKE MODULE COMPLIANCE
 
