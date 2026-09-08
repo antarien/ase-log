@@ -41,6 +41,12 @@
         "doc": "Required component not on entity"
       },
       {
+        "name": "MANAGER_ABSENT", "suffix": "",
+        "short": "manager entity was never created",
+        "hint": "Check that some system creates the manager entity and gives it its tag, and that the schedule places that creation before this system. An empty view means no entity carries the tag at all, so there is nothing to look inside",
+        "doc": "Der VERWALTER eines Moduls existiert nicht: die Sicht auf seinen Manager-Tag ist LEER, es gibt keine Entity zu nennen. Nicht COMPONENT_MISSING - das setzt eine VORHANDENE Entity voraus, der ein Component fehlt, und behauptet hier zweimal etwas Falsches, weil es weder eine Entity noch ein Component gibt. Nicht INVALID_ENTITY (nichts ist zerstoert, es wurde nie etwas angelegt), nicht REFERENCE_UNRESOLVED (es gibt keinen Verweis, es wird eine Sicht gebildet), nicht RESOURCE_UNAVAIL (das meint ausdruecklich eine Ressource AUSSERHALB der Registry, und eine Sicht IST die Registry), nicht HUB_NOT_FOUND (nicht der Hub, sondern der Manager-Tag eines Moduls). Die Bauform ist baumweit dieselbe: view<XxxMgrTag>() gefolgt von einer empty()- oder front()-Pruefung. ERR-Entsprechung von WRN::CAT::MANAGER_ABSENT: dieselbe Sache, aber der Vorgang endet hier statt weiterzulaufen."
+      },
+      {
         "name": "INVALID_ENTITY", "suffix": "",
         "short": "entity destroyed or ID stale",
         "hint": "Check that the entity was not destroyed, that the stored entity ID is the right one and that no dangling reference survived",
@@ -257,6 +263,12 @@
         "short": "required component not on the entity",
         "hint": "Check that the entity was spawned with its required components and that no other system removed the component. This entity is skipped and the rest of the view is processed",
         "doc": "Wie ERR::CAT::COMPONENT_MISSING, aber die Schleife laeuft weiter. Der Unterschied ist wichtiger als er aussieht: eine Entity ohne Component in einer Iteration ueber tausend ist ein uebersprungener Einzelfall, kein gescheiterter Durchlauf. Nicht zu verwechseln mit einer WIRKLICH optionalen Component - deren Abwesenheit ist erlaubt und wird gar nicht gemeldet."
+      },
+      {
+        "name": "MANAGER_ABSENT",
+        "short": "manager entity was never created",
+        "hint": "Check that some system creates the manager entity and gives it its tag, and that the schedule places that creation before this system. An empty view means no entity carries the tag at all in this pass, so there is nothing to look inside",
+        "doc": "Wie ERR::CAT::MANAGER_ABSENT, aber der Durchlauf geht weiter. Beide Ebenen werden gebraucht und die Wahl haengt am Kontrollfluss der Fundstelle, nicht an ihrer Schwere: wo das System hinter der Pruefung zurueckkehrt, ist es ERR, wo es die naechste Einheit nimmt und weitermacht, ist es WRN. Die Abgrenzung gegen COMPONENT_MISSING, INVALID_ENTITY, REFERENCE_UNRESOLVED, RESOURCE_UNAVAIL und HUB_NOT_FOUND steht ausgeschrieben unter ERR::CAT::MANAGER_ABSENT und gilt hier unveraendert."
       },
       {
         "name": "INVALID_ENTITY",

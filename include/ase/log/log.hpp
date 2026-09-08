@@ -63,9 +63,42 @@
 #include <ase/containers/vector.hpp>
 #include <ase/log/log_filter.hpp>
 #include <ase/log/log_err_cat_gen.hpp>
-#include <spdlog/spdlog.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/logger.h>
+// DER DACHHEADER `spdlog/spdlog.h` IST AM 2026-08-31 ENTFALLEN — der Schnitt, den der Absatz
+// weiter unten noch als "naechsten" ankuendigte. Gebraucht werden hier VIER Symbole, und alle
+// vier stehen in `logger.h` bzw. dem `common.h`, das es mitbringt:
+//     spdlog::logger            die beiden Slot-Referenzen und LogSystem::logger()
+//     spdlog::sinks::sink       der Ringpuffer-Slot
+//     spdlog::format_string_t   die neun log_fmt-Traeger
+//     spdlog::level::level_enum set_level
+//
+// WAS DER DACHHEADER DARUEBER HINAUS MITBRACHTE: die Logger-REGISTRY samt globaler API
+// (register_logger, shutdown, die synchronous_factory, die freien Logfunktionen). Diese Datei
+// ruft davon NICHTS — die Registry-Aufrufe stehen in log_sys.cpp, und die bindet ihren Header
+// selbst ein. Ein Dachheader liefert, was die Bibliothek anzubieten HAT, nicht was der Aufrufer
+// BRAUCHT; genau darin liegt sein Preis.
+//
+// WAS DAS WERT IST: dieser Header steht in 2224 Uebersetzungseinheiten, und der Preis fiel nicht
+// bei Aenderungen an, sondern bei JEDEM einzelnen Bau.
+//
+// ZWEI SENKEN-HEADER SIND AM 2026-08-31 ENTFALLEN, und das war der erste Ertrag des
+// Lebenszyklus-Schnitts. Hier standen zusaetzlich:
+//     #include <spdlog/sinks/stdout_color_sinks.h>
+//     #include <spdlog/sinks/basic_file_sink.h>
+// Gebraucht hat sie einzig das `inline init()`, das jetzt in src/log_standalone.cpp steht. Nach
+// dem Umzug nannte diese Datei kein einziges Symbol daraus mehr — gemessen: die beiden Namen
+// kamen nur noch in ihren EIGENEN Include-Zeilen vor.
+//
+// WAS DAS WERT IST: dieser Header steht in 2224 Uebersetzungseinheiten. Jede von ihnen hat bei
+// JEDER Uebersetzung zwei Senken-Baeume mitgelesen, die sie nie benutzt — der Preis fiel nicht
+// bei Aenderungen an, sondern bei jedem einzelnen Bau.
+//
+// GEPRUEFT, dass sich niemand auf die durchgereichte Lieferung verlaesst: die vier Dateien im
+// Baum, die eine dieser Senken nennen (ase-codegen/console_output.hpp, log.hpp, log_standalone.cpp,
+// log_sys.cpp), binden den passenden Header jeweils SELBST ein.
+//
+// `spdlog/spdlog.h` bleibt und kann hier noch nicht weg: der Aufrufpfad ist inline und ruft
+// `logger()->info(fmt, args...)` direkt. Ihn abzuloesen ist der naechste Schnitt, nicht dieser.
 #include <memory>
 #include <source_location>
 #include <string>
@@ -82,6 +115,12 @@ namespace ase::log {
 // default: guessing lower would hide a warning behind a filter, guessing higher would raise every
 // unparsable line to an alarm. The value is the index into the level table (0=trace..5=critical).
 inline constexpr uint8_t kLogLevelInfo = 2u;
+
+// Der unterste Index derselben Tabelle: alles wird durchgelassen. Er kam am 2026-08-31 dazu, weil
+// die Standalone-Einstiege ihre Stufe seither als ZAHL uebergeben statt als Konstante der
+// Bibliothek — sie setzen beide Stufen auf TRC, damit ein abstuerzendes Werkzeug nicht genau die
+// Zeilen im Puffer mitnimmt, die den Absturz erklaeren.
+inline constexpr uint8_t kLogLevelTrace = 0u;
 
 // Highest level index the tables in this header carry: 0 TRC, 1 DBG, 2 INF, 3 WRN, 4 ERR, 5 CRT.
 // The underlying library knows one more value above CRT that means "logging off"; a line can never
@@ -191,309 +230,57 @@ private:
 };
 
 // ============================================================================
-// Log rotation quota — SSOT for every log-writing binary
+// Log rotation quota — steht seit 2026-08-31 in ase/log/log_quota.hpp
 // ============================================================================
-
-/**
- * Rotation quota shared by all tiers, the edge daemon and the operator CLI.
- *
- * The SSOT is the plain-text file <project-root>/logs/quota.conf, read once when a binary
- * builds its file sink. Every log file rotates at max_bytes and keeps max_files older
- * generations (world-9001.log, world-9001.1.log, ...), so no log can grow without bound in
- * production. A process started before a quota change keeps the quota it read at startup.
- */
-
-// Quota applied when logs/quota.conf is absent. 50 MiB per file with 3 kept generations bounds
-// one tier at 200 MiB, so five logging tiers cannot exceed 1 GiB no matter how long they run.
-inline constexpr uint64_t kDefaultLogMaxBytes = 52428800ULL;  // 50 MiB
-inline constexpr uint32_t kDefaultLogMaxFiles = 3u;
-
-// Hard floor for a configured quota. A max_bytes of zero makes spdlog's rotating sink throw, and
-// anything below one MiB would rotate mid-burst and shred a single stack trace across generations.
-inline constexpr uint64_t kMinLogMaxBytes = 1048576ULL;  // 1 MiB
-
-// Hard ceiling for kept generations. spdlog's rotating sink THROWS above 200000, and that throw
-// happens inside the sink constructor during logger init — a place no ASE binary wraps in a catch,
-// so it would reach std::terminate and every tier plus the operator console would die at startup.
-// The bound is enforced in the SSOT itself (writer AND reader), so neither a mistyped console
-// command nor a hand-edited quota.conf can turn a log setting into an unbootable stack. 100 kept
-// generations is already far past any diagnostic need.
-inline constexpr uint32_t kMaxLogMaxFiles = 100u;
-
-// Retention for the log directory, swept when a binary builds its file sink. Size rotation bounds
-// each STREAM; this bounds the NUMBER of streams, which grows by itself — one file per port a tier is
-// ever started on, one per operator console run. Two weeks is far past any process lifetime, so a
-// file a running binary still writes can never be caught by the sweep.
-inline constexpr long kLogRetentionDays = 14;
-
-// Seconds per day, so the retention cutoff can be computed in plain Unix seconds. utils::clock
-// reports int64_t seconds rather than a clock type, and the sweep compares against DirEntry's
-// st_mtime, which is the same unit — the two meet without a duration cast in between.
-inline constexpr int64_t kSecondsPerDay = 86400;
-
-// The sweep only ever deletes files ending in this suffix. Size counts the terminator, because
-// str_equal is given the bound and stops at the NUL it finds within it.
-inline constexpr const char* kLogFileSuffix    = ".log";
-inline constexpr uint32_t    kLogFileSuffixLen = 5u;  // ".log" + '\0'
-
-// Entries examined per directory listing. MEASURED 2026-08-20: the live log directory holds 24
-// .log files. The population has two parts and only one of them grows — a fixed file per port a
-// tier is ever started on (dist-9080 through dist-9093 is 14 of the 24), plus one per operator
-// console run. 64 leaves room for 40 further console runs between two sweeps, and a sweep runs
-// on every process start. Sized against the measurement, not against the type's maximum: a
-// DirEntry is ~264 bytes, so this array is ~17 KiB of stack, and 256 entries would be ~68 KiB.
-inline constexpr uint32_t kLogDirScanMax = 64u;
-
-// If a listing comes back completely full, deleted files have freed slots and a further round can
-// see entries the first one had no room for. Rounds stop as soon as a listing is short or deletes
-// nothing, so this bound only caps a directory that keeps yielding full batches — it is a
-// termination guard, not a work limit.
-inline constexpr uint32_t kLogPruneMaxRounds = 4u;
-
-struct LogQuota {
-    uint64_t max_bytes = kDefaultLogMaxBytes;  // size at which the active file rotates
-    uint32_t max_files = kDefaultLogMaxFiles;  // kept generations besides the active file
-};
-
-/** @brief Absolute path of the log directory (<project-root>/logs). */
-[[nodiscard]] std::string log_dir_path();
-
-/** @brief Absolute path of the quota SSOT (<project-root>/logs/quota.conf). */
-[[nodiscard]] std::string log_quota_path();
-
-/**
- * @brief Read the rotation quota from the SSOT file.
- * @return The configured quota, or the kDefaultLog* values when the file is absent or unreadable.
- */
-[[nodiscard]] LogQuota log_quota();
-
-/**
- * @brief Read the rotation quota from an EXPLICIT log directory.
- * @param dir Directory that holds the quota.conf to read.
- * @return The configured quota, or the kDefaultLog* values when the file is absent or unreadable.
- *
- * For binaries whose log directory is not the build tree's logs/. The edge daemon is downloaded as
- * a PREBUILT binary from the dist server; the customer never builds anything, so the
- * ASE_PROJECT_ROOT compiled into that binary is the BUILD MACHINE's path and exists nowhere on the
- * customer's disk. The daemon logs to <HOME>/.ase-edge/logs and must read its quota from THERE
- * (finding none and using the defaults), never from that foreign build path.
- */
-[[nodiscard]] LogQuota log_quota_in(const std::string& dir);
-
-/**
- * @brief Write the rotation quota to the SSOT file, creating the log directory if needed.
- * @param quota Values to persist; max_bytes is clamped up to kMinLogMaxBytes.
- * @return false when the file could not be written.
- */
-bool set_log_quota(const LogQuota& quota);
+//
+// HIER STANDEN die Rotations- und Aufbewahrungsschranken samt LogQuota, log_quota(),
+// log_quota_in(), set_log_quota(), log_dir_path() und log_quota_path(). Sie sind
+// UNVERAENDERT nach <ase/log/log_quota.hpp> gewandert — wer eine Quota liest oder schreibt,
+// bindet diesen Header ein.
+//
+// DER GRUND IST DER EINSATZZWECK UND SEIN VERBRAUCHERKREIS, und beides ist gemessen:
+// diese Datei wird von 2224 Uebersetzungseinheiten eingebunden, die Quota-Symbole von SECHS
+// Dateien — vier im Modul (internal/log_files.hpp, src/log_files.cpp, src/log_sys.cpp und
+// diese) und zwei ausserhalb (tools/ase-edge-daemon/.../backend_paths.cpp,
+// tools/ase-cli/src/logs/logs_cmd.cpp). Eine geaenderte Rotationsschranke uebersetzte damit
+// 2224 Einheiten neu, obwohl sechs sie lesen.
+//
+// NICHT DIE ZEILENZAHL WAR DER ANLASS, SONDERN DIE KOPPLUNG. Ein Zweck, den sechs Dateien
+// brauchen, gehoert nicht in den Header, den der ganze Baum sieht — und ein Header, den der
+// ganze Baum sieht, darf sich nur aendern, wenn sich der AUFRUF aendert.
 
 // ============================================================================
-// CLI Initialization (for tools without ECS World)
+// Aufsetzen und Beenden des Loggers — UMGEZOGEN am 2026-08-31
 // ============================================================================
+//
+// Hier standen bis heute die vier Einstiege, mit denen ein Programm OHNE ECS-Welt einen Logger
+// bekommt (init, init_server_standalone, init_tui_standalone, install_capture_logger), die
+// Capture-Klammer, der Filter-Einstieg aus argv, finalize_logger_after_boot und shutdown.
+// Sie stehen jetzt vollstaendig in <ase/log/log_lifecycle.hpp>.
+//
+// GEMESSEN, NICHT GESCHAETZT: dieser Header wird von 2224 Uebersetzungseinheiten eingebunden.
+// Den Lebenszyklus dagegen ruft, wer ein Programm STARTET oder BEENDET — init aus 14 Dateien,
+// shutdown aus 10, die Capture-Klammer aus 3. Eine Aenderung an der Capture-Klammer uebersetzte
+// damit 2224 Einheiten neu, obwohl drei sie rufen.
+//
+// UND ES GIBT HIER ABSICHTLICH KEIN `#include <ase/log/log_lifecycle.hpp>`. Ein Durchreicher
+// waere bequem und haette den Umzug fuer jeden Aufrufer unsichtbar gemacht — er haette aber
+// genau die Kopplung wiederhergestellt, die der Schnitt aufloest: ueber ihn haenge jede der 2224
+// Einheiten weiter am Lebenszyklus, und eine Aenderung dort baute den Baum erneut. Wer eine
+// dieser Funktionen ruft, bindet den Header ein, in dem sie steht.
+//
+// NICHT DIE ZEILENZAHL WAR DER ANLASS, SONDERN DIE KOPPLUNG — dieselbe Begruendung wie beim
+// Quota-Block darueber, und dieselbe Regel: ein Header, den der ganze Baum sieht, darf sich nur
+// aendern, wenn sich der Zweck aendert, den der ganze Baum braucht. Das ist hier der AUFRUF.
 
-/**
- * @brief Initialize logger for CLI tools (no ECS required)
- * @param name Logger name (e.g., "ase-codegen")
- *
- * Use this for CLI tools that don't have an ECS World.
- * For ECS-based apps, use LogSystem::on_start() instead.
- */
-inline void init(const std::string& name) {
-    if (LogSystem::logger()) return;  // Already initialized
+// (Der uebrige Lebenszyklus steht in <ase/log/log_lifecycle.hpp> — siehe den Grabstein oben.)
 
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    console_sink->set_pattern("%v");  // Simple output for CLI
 
-    LogSystem::logger() = std::make_shared<spdlog::logger>(name, console_sink);
-    LogSystem::logger()->set_level(spdlog::level::info);
-}
 
-/**
- * @brief Initialize a server-style logger for a standalone (non-ECS) binary.
- * @param name     Logger name (e.g. "ase-edge")
- * @param label    Tier tag for the [ASE] [<label>] prefix (e.g. "EDGE")
- * @param log_file Optional file path (relative resolves to project root; empty = console only)
- *
- * Emits the SAME uniform console format as the ECS-based servers —
- * [ts] [LVL] [ASE] [<label>] message — but without ECS/registry/kernel/capture-ring, so
- * customer-side tools (the edge daemon) log identically to engine/replica/world. Honours the
- * 3-axis filter set by parse_cli_filter_from_argv. Idempotent (no-op if a logger already exists).
- * Defined in log_sys.cpp (it reuses the file-scope Colored/PlainLevelFlag formatters).
- */
-void init_server_standalone(const std::string& name, const std::string& label, const std::string& log_file = "");
 
-/**
- * @brief Callback that receives one fully-formatted log line (for a TUI log pane).
- * @param line   Pointer to the formatted line bytes (NOT null-terminated).
- * @param len    Number of bytes in the line.
- * @param level  spdlog level index (0 trace .. 5 critical) for optional per-level handling.
- * @param user   Opaque user pointer passed through from init_tui_standalone.
- *
- * The line is byte-identical to the tier console line (gray timestamp, colored 3-char level,
- * [ASE] [<label>] prefix). Invoked under the sink lock and possibly from a worker thread, so the
- * callback must only enqueue the line (never touch the terminal from here).
- */
-using TuiLogCallback = void (*)(const char* line, uint32_t len, int level, void* user);
 
-/**
- * @brief Initialize a standalone logger for a full-screen TUI tool (tools/ase-cli).
- * @param name     Logger name (e.g. "ase-cli")
- * @param label    Tier tag for the [ASE] [<label>] prefix (e.g. "CLI")
- * @param log_file Optional file path (relative resolves to project root; empty = no file)
- * @param callback Receives every formatted line for the caller's log pane
- * @param user     Opaque pointer handed back to the callback
- *
- * Builds a plain [LABEL][LVL] file sink (byte-identical to init_server_standalone's file sink) plus a
- * colored callback sink that feeds the caller's pane, and deliberately NO stdout console sink, so raw
- * ANSI never corrupts the alternate-screen TUI. Honours the 3-axis filter. Idempotent (no-op if a
- * logger already exists). Defined in log_sys.cpp (reuses the file-scope Colored/PlainLevelFlag flags).
- */
-void init_tui_standalone(const std::string& name, const std::string& label, const std::string& log_file,
-                         TuiLogCallback callback, void* user);
 
-/**
- * @brief Install the capture-phase logger.
- *
- * Must be the FIRST call at the top of Kernel::build — it puts g_logger_
- * into a well-defined state (a single ringbuffer sink, no console) so every
- * log::* call made afterwards by kernel init, KernelEnvLdrSystem,
- * KernelCmdSystem, dlopen discovery and any pre-LogSystem::on_start code
- * is captured instead of silently dropped by the null-logger gate.
- *
- * LogSystem::on_start later attaches the real sinks (console, per-server
- * file, HTTP-endpoint ringbuffer, CountingSink) to the SAME logger, drains
- * the captured entries into those new sinks (so they appear in the final
- * log file with the correct [LABEL] and [DBG|INF|WRN|ERR|CRT|TRC] format),
- * and removes the capture ring. One logger across the whole process.
- */
-void install_capture_logger();
 
-/**
- * @brief Divert every log line into a buffer, then hand the lines back one by one.
- *
- * WHY THIS EXISTS: two callers in ase-ecs (boot_logger.cpp, shutdown_sequence.cpp) print a
- * progress table to stdout and must not let a log line from some system's on_start tear a
- * row in half. Both solved it the same way and each carried its OWN copy: a private sink
- * class deriving from spdlog, a saved vector of the previous sinks, and a replay loop. Two
- * copies of one mechanism, in the module that owns neither the logger nor its sinks.
- *
- * The sinks belong to the logger, so the bracket belongs here.
- *
- * NO spdlog TYPE CROSSES THIS INTERFACE. The caller receives a level as a small integer and
- * the text through its OWN buffer. Handing out a sink pointer would have moved the coupling
- * into a different public signature instead of removing it — which is exactly the mistake
- * that a wrapper around a forbidden type makes while looking like a solution.
- *
- * Levels are the same small integers the rest of this header uses: 0 TRC, 1 DBG, 2 INF,
- * 3 WRN, 4 ERR, 5 CRT. Anything higher means "off" and is reported as CRT.
- *
- * Not reentrant and not nestable: a second capture_begin() while one is open returns false
- * and changes nothing. One progress table at a time is the only case that exists, and a
- * silent nested bracket would restore the wrong sinks on the inner close.
- *
- * @return true when the diversion is active. false means there is no logger yet — the caller
- *         may proceed, its log lines simply have nowhere to go, exactly as before.
- */
-bool capture_begin();
-
-/** Number of lines buffered since capture_begin(). 0 when no capture is open. */
-[[nodiscard]] uint32_t capture_count();
-
-/**
- * @brief Read one buffered line.
- *
- * @param index      0 .. capture_count()-1
- * @param out_level  receives the level (see above); untouched when the index is out of range
- * @param out_text   caller-owned buffer, always NUL-terminated when out_cap > 0
- * @param out_cap    capacity of out_text in bytes
- * @return the FULL length of the line, which may exceed out_cap-1 when it was truncated;
- *         0 when the index is out of range.
- *
- * The full length is returned rather than a bool so a caller can SEE a truncation instead of
- * silently printing a shortened line. A bool would have made "fits" and "was cut" look alike.
- */
-uint32_t capture_entry(uint32_t index, uint8_t& out_level, char* out_text, uint32_t out_cap);
-
-/**
- * @brief Replay the buffered lines through the sinks that were active at capture_begin().
- *
- * @return number of lines replayed.
- *
- * The diversion STAYS in place: replaying is not closing. Without this the caller could not do
- * it at all — while the bracket is open the logger's only sink is the buffer, so a log call
- * would land back in it, and after capture_end the buffer is gone. Only the bracket itself
- * holds both halves at once.
- *
- * THERE IS DELIBERATELY NO "skip the console" ARGUMENT, and the reason is a measurement rather
- * than a preference. boot_logger.cpp used to filter the console out of this replay with two
- * dynamic_casts against concrete sink classes of the logging library. Those casts were looking
- * for something that is not there: in the server path this module attaches a file sink, an
- * HTTP ringbuffer and a counting sink and NOTHING else (log_sys.cpp builds exactly two sinks,
- * both ringbuffers; finalize_logger_after_boot attaches exactly three, none of them a
- * console). The only console sink ase-log ever constructs lives in init_standalone, for CLI
- * tools that never run a boot table.
- *
- * So the filter removed nothing, and carrying it over would have moved a mechanism without an
- * effect into a second module — where the next reader would have had to work out all over
- * again what it guards against.
- *
- * IF A CONSOLE SINK IS EVER ATTACHED TO THE SERVER LOGGER, this decision has to be taken
- * again: replayed boot lines would then reach a terminal that already shows the progress
- * table. The place to notice it is here, not at a caller.
- */
-uint32_t capture_replay();
-
-/**
- * @brief Close the bracket and drop the buffer.
- *
- * @param restore_sinks  true puts the sinks that were active at capture_begin() back in
- *                       place; false leaves the logger without them.
- *
- * Both values are in use and neither is a shortcut: boot_logger restores, because the process
- * keeps running and every later log line has to reach console and file again.
- * shutdown_sequence does not, because it runs while the process is ending and has already
- * replayed the buffer to the terminal itself.
- *
- * Calling this without an open capture is a no-op.
- */
-void capture_end(bool restore_sinks);
-
-/**
- * @brief Parse the --log argument from argv and feed it into the 3-axis
- *        filter engine (level/category/phase).
- *
- * Must run BEFORE install_capture_logger so that even capture-phase calls
- * respect the user's filter. Pure global state mutation — no Registry,
- * no logger dependency.
- */
-void parse_cli_filter_from_argv(int argc, char* argv[]);
-
-/**
- * @brief Finalize the logger after the Schedule-Bootstrap block.
- *
- * During the boot block the logger runs with only {capture-ring, file,
- * HTTP-ring, counting} — the console sink is deliberately withheld so
- * log lines from every system's on_start cannot interleave into the
- * boot progress table on stdout. This call:
- *   1. attaches the previously parked console sink to g_logger_
- *   2. replays the capture-ring into every attached sink (console + file
- *      + HTTP-ring + counting) so early log lines appear on BOTH stdout
- *      and in logs/{server}-{port}.log with the correct [LABEL] format
- *   3. detaches and drops the capture ring
- *
- * Idempotent: second call is a no-op.
- */
-void finalize_logger_after_boot();
-
-/**
- * @brief Shutdown logger (for CLI tools)
- */
-inline void shutdown() {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->flush();
-        LogSystem::logger().reset();
-    }
-}
 
 // ============================================================================
 // Global Logging Functions (static, use LogSystem's logger)
@@ -1350,298 +1137,48 @@ inline void flush() {
 }
 
 // ============================================================================
-// Client Logging Functions (uses client_logger without [SERVER] prefix)
-// For forwarding browser console logs via RTC
+// Client-Weiterleitung — UMGEZOGEN am 2026-08-31 nach <ase/log/log_client.hpp>
 // ============================================================================
-
-// Unfiltered client logging (backward compatible, no client filter applied)
-inline void client_info(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->info("{}", msg);
-}
-
-inline void client_warn(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->warn("{}", msg);
-}
-
-inline void client_error(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->error("{}", msg);
-}
-
-inline void client_debug(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->debug("{}", msg);
-}
-
-// Filtered client logging with client_bit (use 1ULL << client_id)
-// Respects level filter, category filter, AND client filter (+CLT:01, -CLT)
-inline void client_info(uint64_t client_bit, const std::string& msg,
-                        const std::source_location& loc = std::source_location::current()) {
-    if (!should_log_client(level::info, client_bit, loc)) return;
-    if (LogSystem::client_logger()) LogSystem::client_logger()->info("{}", msg);
-}
-
-inline void client_warn(uint64_t client_bit, const std::string& msg,
-                        const std::source_location& loc = std::source_location::current()) {
-    if (!should_log_client(level::warn, client_bit, loc)) return;
-    if (LogSystem::client_logger()) LogSystem::client_logger()->warn("{}", msg);
-}
-
-inline void client_error(uint64_t client_bit, const std::string& msg,
-                         const std::source_location& loc = std::source_location::current()) {
-    if (!should_log_client(level::error, client_bit, loc)) return;
-    if (LogSystem::client_logger()) LogSystem::client_logger()->error("{}", msg);
-}
-
-inline void client_debug(uint64_t client_bit, const std::string& msg,
-                         const std::source_location& loc = std::source_location::current()) {
-    if (!should_log_client(level::debug, client_bit, loc)) return;
-    if (LogSystem::client_logger()) LogSystem::client_logger()->debug("{}", msg);
-}
-
-// Filtered client logging with fmt-style formatting
-// Full filtering: level + O(1) cached category + client filter
 //
-// ARITY THREE HERE, NOT NINE — and the difference is measured, not guessed:
-// GEMESSEN 2026-08-22, the client_* family has ZERO callers in the whole tree (both with and
-// without the log:: prefix, cross-checked against log::info which finds 464 files). There is no
-// measured arity to cover. GESETZT is three as a reserve, the same shape ring_buffer.hpp chose
-// for the same reason. Needing a fourth costs one overload written after this pattern, and the
-// COMPILER names the call site — a missing overload cannot fail silently at run time.
-// The six main levels above carry nine because there the demand is measured (debug reaches 9).
+// Hier stand die vollstaendige client_*-Familie: vier Stufen in je drei Formen (ungefiltert,
+// ueber ein Client-Bit gefiltert, formatiert mit Aufrufort-Erfassung). Sie schreibt in den
+// ZWEITEN Logger des Moduls und bedient damit einen anderen Zweck als dieser Header — Zeilen,
+// die ueber RTC aus einem Browser hereinkommen, nicht Zeilen, die der Server erzeugt.
+//
+// GEMESSEN, und der Befund traegt den Schnitt: die Familie hat NULL Aufrufer im ganzen Baum,
+// mit und ohne `log::`-Praefix. Der Vermerk von 2026-08-22 zwei Absaetze weiter unten hatte
+// dasselbe gemessen; die Nachmessung am 2026-08-31 bestaetigt es unabhaengig, mit
+// Positivkontrolle (dieselbe Sondenform findet `info` in 1022, `warn` in 2365 Dateien).
+//
+// SIE IST NICHT GELOESCHT, UND DAS IST KEINE NACHLAESSIGKEIT: der zweite Logger existiert, wird
+// von log_sys.cpp aufgesetzt und vom ResourceManager gehalten. Was fehlt, ist der Aufrufer, nicht
+// die Sache — eine vorbereitete Schnittstelle ist kein toter Code. Aus einem Header, den 2686
+// Dateien fuer den gewoehnlichen Aufruf einbinden, gehoert sie dennoch heraus: sonst zahlt der
+// ganze Baum bei JEDER Uebersetzung fuer eine Familie, die niemand ruft.
 
-template<typename T0>
-inline void client_info(uint64_t client_bit, log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_client_loc(filter::LVL_INF, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->info(lf.fmt, std::forward<T0>(a0));
-}
-
-template<typename T0, typename T1>
-inline void client_info(uint64_t client_bit,
-                        log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
-                        T0&& a0, T1&& a1) {
-    if (!filter::should_log_client_loc(filter::LVL_INF, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
-}
-
-template<typename T0, typename T1, typename T2>
-inline void client_info(uint64_t client_bit,
-                        log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
-                                 std::type_identity_t<T2>> lf,
-                        T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_client_loc(filter::LVL_INF, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                         std::forward<T2>(a2));
-}
-
-template<typename T0>
-inline void client_warn(uint64_t client_bit, log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_client_loc(filter::LVL_WRN, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->warn(lf.fmt, std::forward<T0>(a0));
-}
-
-template<typename T0, typename T1>
-inline void client_warn(uint64_t client_bit,
-                        log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
-                        T0&& a0, T1&& a1) {
-    if (!filter::should_log_client_loc(filter::LVL_WRN, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
-}
-
-template<typename T0, typename T1, typename T2>
-inline void client_warn(uint64_t client_bit,
-                        log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
-                                 std::type_identity_t<T2>> lf,
-                        T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_client_loc(filter::LVL_WRN, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                         std::forward<T2>(a2));
-}
-
-template<typename T0>
-inline void client_error(uint64_t client_bit, log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_client_loc(filter::LVL_ERR, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->error(lf.fmt, std::forward<T0>(a0));
-}
-
-template<typename T0, typename T1>
-inline void client_error(uint64_t client_bit,
-                         log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
-                         T0&& a0, T1&& a1) {
-    if (!filter::should_log_client_loc(filter::LVL_ERR, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
-}
-
-template<typename T0, typename T1, typename T2>
-inline void client_error(uint64_t client_bit,
-                         log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
-                                  std::type_identity_t<T2>> lf,
-                         T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_client_loc(filter::LVL_ERR, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                          std::forward<T2>(a2));
-}
-
-template<typename T0>
-inline void client_debug(uint64_t client_bit, log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_client_loc(filter::LVL_DBG, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->debug(lf.fmt, std::forward<T0>(a0));
-}
-
-template<typename T0, typename T1>
-inline void client_debug(uint64_t client_bit,
-                         log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
-                         T0&& a0, T1&& a1) {
-    if (!filter::should_log_client_loc(filter::LVL_DBG, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
-}
-
-template<typename T0, typename T1, typename T2>
-inline void client_debug(uint64_t client_bit,
-                         log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
-                                  std::type_identity_t<T2>> lf,
-                         T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_client_loc(filter::LVL_DBG, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                          std::forward<T2>(a2));
-}
+// (Die formatierenden Fassungen der Familie stehen ebenfalls in log_client.hpp — samt dem
+// Vermerk, warum ihre Stelligkeit dort drei ist und nicht neun.)
 
 // ============================================================================
-// RTC Server Logging Functions (uses client_logger with [SERVER] [RTC] prefix)
-// For RTC-related server logs: [ASE] [SERVER] [RTC] message
+// RTC-Server-Weiterleitung — UMGEZOGEN am 2026-08-31 nach <ase/log/log_client.hpp>
 // ============================================================================
-
-inline void rtc_info(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->info("[SERVER] [RTC] {}", msg);
-}
-
-inline void rtc_warn(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->warn("[SERVER] [RTC] {}", msg);
-}
-
-inline void rtc_error(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->error("[SERVER] [RTC] {}", msg);
-}
-
-inline void rtc_debug(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->debug("[SERVER] [RTC] {}", msg);
-}
-
-// The rtc_* family needs NO log_fmtN wrapper: it does not filter by call site, so there is
-// nothing to capture with __builtin_FILE(). The format string is taken directly, which keeps
-// fmt's compile-time check of the string against T0..Tn exactly as before.
-// Arity three, same reason as client_* above: GEMESSEN zero callers tree-wide, GESETZT three
-// as a reserve. A fourth is one overload, and the compiler names the site that needs it.
-
-template<typename T0>
-inline void rtc_info(spdlog::format_string_t<T0> fmt, T0&& a0) {
-    if (LogSystem::client_logger()) {
-        auto msg = fmt::format(fmt, std::forward<T0>(a0));
-        LogSystem::client_logger()->info("[SERVER] [RTC] {}", msg);
-    }
-}
-
-template<typename T0, typename T1>
-inline void rtc_info(spdlog::format_string_t<T0, T1> fmt, T0&& a0, T1&& a1) {
-    if (LogSystem::client_logger()) {
-        auto msg = fmt::format(fmt, std::forward<T0>(a0), std::forward<T1>(a1));
-        LogSystem::client_logger()->info("[SERVER] [RTC] {}", msg);
-    }
-}
-
-template<typename T0, typename T1, typename T2>
-inline void rtc_info(spdlog::format_string_t<T0, T1, T2> fmt, T0&& a0, T1&& a1, T2&& a2) {
-    if (LogSystem::client_logger()) {
-        auto msg = fmt::format(fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                               std::forward<T2>(a2));
-        LogSystem::client_logger()->info("[SERVER] [RTC] {}", msg);
-    }
-}
-
-template<typename T0>
-inline void rtc_warn(spdlog::format_string_t<T0> fmt, T0&& a0) {
-    if (LogSystem::client_logger()) {
-        auto msg = fmt::format(fmt, std::forward<T0>(a0));
-        LogSystem::client_logger()->warn("[SERVER] [RTC] {}", msg);
-    }
-}
-
-template<typename T0, typename T1>
-inline void rtc_warn(spdlog::format_string_t<T0, T1> fmt, T0&& a0, T1&& a1) {
-    if (LogSystem::client_logger()) {
-        auto msg = fmt::format(fmt, std::forward<T0>(a0), std::forward<T1>(a1));
-        LogSystem::client_logger()->warn("[SERVER] [RTC] {}", msg);
-    }
-}
-
-template<typename T0, typename T1, typename T2>
-inline void rtc_warn(spdlog::format_string_t<T0, T1, T2> fmt, T0&& a0, T1&& a1, T2&& a2) {
-    if (LogSystem::client_logger()) {
-        auto msg = fmt::format(fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                               std::forward<T2>(a2));
-        LogSystem::client_logger()->warn("[SERVER] [RTC] {}", msg);
-    }
-}
-
-template<typename T0>
-inline void rtc_error(spdlog::format_string_t<T0> fmt, T0&& a0) {
-    if (LogSystem::client_logger()) {
-        auto msg = fmt::format(fmt, std::forward<T0>(a0));
-        LogSystem::client_logger()->error("[SERVER] [RTC] {}", msg);
-    }
-}
-
-template<typename T0, typename T1>
-inline void rtc_error(spdlog::format_string_t<T0, T1> fmt, T0&& a0, T1&& a1) {
-    if (LogSystem::client_logger()) {
-        auto msg = fmt::format(fmt, std::forward<T0>(a0), std::forward<T1>(a1));
-        LogSystem::client_logger()->error("[SERVER] [RTC] {}", msg);
-    }
-}
-
-template<typename T0, typename T1, typename T2>
-inline void rtc_error(spdlog::format_string_t<T0, T1, T2> fmt, T0&& a0, T1&& a1, T2&& a2) {
-    if (LogSystem::client_logger()) {
-        auto msg = fmt::format(fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                               std::forward<T2>(a2));
-        LogSystem::client_logger()->error("[SERVER] [RTC] {}", msg);
-    }
-}
-
-template<typename T0>
-inline void rtc_debug(spdlog::format_string_t<T0> fmt, T0&& a0) {
-    if (LogSystem::client_logger()) {
-        auto msg = fmt::format(fmt, std::forward<T0>(a0));
-        LogSystem::client_logger()->debug("[SERVER] [RTC] {}", msg);
-    }
-}
-
-template<typename T0, typename T1>
-inline void rtc_debug(spdlog::format_string_t<T0, T1> fmt, T0&& a0, T1&& a1) {
-    if (LogSystem::client_logger()) {
-        auto msg = fmt::format(fmt, std::forward<T0>(a0), std::forward<T1>(a1));
-        LogSystem::client_logger()->debug("[SERVER] [RTC] {}", msg);
-    }
-}
-
-template<typename T0, typename T1, typename T2>
-inline void rtc_debug(spdlog::format_string_t<T0, T1, T2> fmt, T0&& a0, T1&& a1, T2&& a2) {
-    if (LogSystem::client_logger()) {
-        auto msg = fmt::format(fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                               std::forward<T2>(a2));
-        LogSystem::client_logger()->debug("[SERVER] [RTC] {}", msg);
-    }
-}
+//
+// Hier stand die vollstaendige rtc_*-Familie: vier Stufen als String-Fassung und dieselben vier
+// in je drei Stelligkeiten, zusammen sechzehn Funktionen. Sie schreibt in den ZWEITEN Logger des
+// Moduls, mit [SERVER] [RTC]-Praefix.
+//
+// SIE STAND ZWEI ZEILEN UNTER DER client_*-FAMILIE, DIE AM SELBEN TAG DENSELBEN WEG NAHM, und
+// wurde beim ersten Schnitt uebersehen. Der Grund ist lehrreich: jener Schnitt ging nach dem
+// NAMEN (`client_*`) und nicht nach dem ZIEL (`client_logger()`). Beide Familien bedienen
+// denselben Kanal und unterscheiden sich nur in der RICHTUNG — herein aus einem Browser gegen
+// hinaus vom Server ueber die RTC-Strecke.
+//
+// GEMESSEN, mit greifender Positivkontrolle: NULL Aufrufer im ganzen Baum. Sie ist NICHT
+// geloescht — der zweite Logger existiert und wird von log_sys.cpp aufgesetzt; was fehlt, ist
+// der Aufrufer, nicht die Sache. Aus DIESEM Header gehoert sie trotzdem heraus, und der Preis
+// war hier hoeher als bei der Nachbarfamilie: zwoelf ihrer sechzehn Fassungen fuehren
+// `spdlog::format_string_t` im Vertrag, also den Bibliothekstyp, den dieser Header gerade erst
+// aus seiner Include-Zeile verloren hat.
 
 // ============================================================================
 // Error Categories (ERR::CAT) - DRY error messages with auto-generated help

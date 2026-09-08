@@ -60,10 +60,24 @@
 
 #include <ase/log/log.hpp>
 
+// Die Deklarationen der Senken- und Formatierer-Fabriken, deren Rumpf am Ende dieser Datei steht.
+#include <ase/log/internal/log_resource_manager.hpp>
+// Die Rotationspolitik (welche Datei, wie gross, wie viele Generationen).
+#include <ase/log/internal/log_files.hpp>
+// Die Anzeige-Politik: Zeitstempel-Grau, Stufenfarbe, Kuerzung und Einfaerbung der Meldung.
+#include <ase/log/log_display.hpp>
+
 #include <ase/containers/vector.hpp>
 
+#include <spdlog/pattern_formatter.h>
 #include <spdlog/sinks/base_sink.h>
+#include <spdlog/sinks/callback_sink.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -239,5 +253,175 @@ void capture_end(bool restore_sinks) {
     state.queue.reset();
     state.open = false;
 }
+
+namespace internal {
+
+/*
+ * DIE SENKEN- UND FORMATSCHICHT — Rumpf hier, Vertrag in internal/log_resource_manager.hpp.
+ *
+ * WARUM DIE RUEMPFE IN DIESER DATEI STEHEN UND NICHT BEI IHREN DEKLARATIONEN
+ *
+ *   Drei Regeln treffen diesen Code gleichzeitig, und er braucht von jeder eine Ausnahme:
+ *   SPDLOG_DIRECT_FORBIDDEN (die Fabriken nennen die Bibliothek), INHERITANCE_FORBIDDEN_EXCEPT_ECS
+ *   (eine Musterflagge IST eine Ableitung von spdlog::custom_flag_formatter) und
+ *   PROTOTYPE_PATTERN_FORBIDDEN (deren clone() ist rein virtuell, ohne sie uebersetzt nichts).
+ *
+ *   Die SCHNITTMENGE der drei namentlichen Ausnahmelisten enthaelt genau zwei Dateien: log_sys.cpp
+ *   und diese. log_sys.cpp kaeme mit Flaggen und Fabriken ueber den Trenner des
+ *   GOD_SYSTEM_UNSPLIT_BAND — und aus einem Band fuehrt nur eine Trennung, nie eine Kuerzung.
+ *   Damit bleibt diese Datei, und die Widmung traegt es: sie haengt SENKEN um, die Fabriken BAUEN
+ *   Senken. Beides ist Senkenarbeit an derselben Bibliotheksgrenze.
+ *
+ *   DIE DEKLARATIONEN BLEIBEN, WO SIE HINGEHOEREN — beim Ressourcen-Verwalter, der die Senken
+ *   haelt und einhaengt. Ein Header darf sie tragen, weil dort keine Ableitung steht; nur der
+ *   RUMPF braucht alle drei Ausnahmen. Wer die Fabriken sucht, findet sie ueber ihren Vertrag,
+ *   nicht ueber diese Datei.
+ */
+
+namespace {
+
+// Die gefaerbte 3-Zeichen-Stufenmarke (%*). Die Farbe je Stufe kommt aus den erzeugten Gettern
+// (die Anzeige-Politik nennt eine SHA-Palettenfarbe) — ein Farbwechsel ist ein Generat-Neubau,
+// nie eine Aenderung hier.
+class ColoredLevelFlag : public spdlog::custom_flag_formatter {
+public:
+    void format(const spdlog::details::log_msg& msg, const std::tm&,
+                spdlog::memory_buf_t& dest) override {
+        static const char* levels[] = {"TRC", "DBG", "INF", "WRN", "ERR", "CRT", "OFF"};
+        auto idx = static_cast<size_t>(msg.level);
+        if (idx < sizeof(levels) / sizeof(levels[0])) {
+            const char* sgr = detail::display_level_sgr(static_cast<uint32_t>(idx));
+            if (sgr[0] != '\0') {
+                dest.append(std::string_view("\x1b["));
+                dest.append(std::string_view(sgr));
+                dest.append(std::string_view("m"));
+            }
+            dest.append(std::string_view(levels[idx]));
+            dest.append(std::string_view("\x1b[0m"));
+        }
+    }
+
+    [[nodiscard]] std::unique_ptr<custom_flag_formatter> clone() const override {
+        return std::make_unique<ColoredLevelFlag>();
+    }
+};
+
+// Die schlichte 3-Zeichen-Stufenmarke (%#) fuer das reduzierte Muster des HTTP-Rings.
+class PlainLevelFlag : public spdlog::custom_flag_formatter {
+public:
+    void format(const spdlog::details::log_msg& msg, const std::tm&,
+                spdlog::memory_buf_t& dest) override {
+        static const char* levels[] = {"TRC", "DBG", "INF", "WRN", "ERR", "CRT", "OFF"};
+        auto idx = static_cast<size_t>(msg.level);
+        if (idx < sizeof(levels) / sizeof(levels[0])) {
+            dest.append(std::string_view(levels[idx]));
+        }
+    }
+
+    [[nodiscard]] std::unique_ptr<custom_flag_formatter> clone() const override {
+        return std::make_unique<PlainLevelFlag>();
+    }
+};
+
+// Die semantische Meldung (%~): sie steht, wo %v stand, in JEDEM Kanal, der den Datensatz
+// schreibt. EIN Durchgang je Zeile — die Live-Werte gegen die erzeugte Worttabelle kuerzen (ein
+// FNV-1a-Lauf, je Wort eine O(1)-Sonde aus Hash und Laenge, nie ein Tabellendurchlauf), dann den
+// KOPF nach Form einfaerben. Die Folgezeilen ab dem ersten eingebetteten Umbruch gehen woertlich
+// durch: sie sind fertige Generat-Bytes im Hinweisgrau, und ein Live-Wert steht dort nie. Dass
+// das HIER laeuft, in der Formatschicht, ist der Grund, warum jeder Kanal byte-gleich bleibt.
+class SemanticMessageFlag : public spdlog::custom_flag_formatter {
+public:
+    void format(const spdlog::details::log_msg& msg, const std::tm&,
+                spdlog::memory_buf_t& dest) override {
+        const std::string raw(msg.payload.data(), msg.payload.size());
+        const std::size_t nl = raw.find('\n');
+        const std::string head = colorize_log_line(
+            shorten_display_line(nl == std::string::npos ? raw : raw.substr(0, nl)));
+        dest.append(head.data(), head.data() + head.size());
+        if (nl != std::string::npos) {
+            dest.append(raw.data() + nl, raw.data() + raw.size());
+        }
+    }
+
+    [[nodiscard]] std::unique_ptr<custom_flag_formatter> clone() const override {
+        return std::make_unique<SemanticMessageFlag>();
+    }
+};
+
+}  // namespace
+
+// DIE DREI SENKEN-FABRIKEN. Wer eine Senke braucht, ruft hier, statt sie selbst zu konstruieren —
+// die Bauform steht an EINER Stelle, und die Aufrufer nennen keinen Typ der Bibliothek mehr.
+
+std::shared_ptr<spdlog::sinks::sink> make_rotating_file_sink(const std::string& path) {
+    uint64_t max_bytes = 0;
+    uint32_t max_files = 0;
+    prepare_log_sink(path, max_bytes, max_files);
+    return std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+        path, static_cast<std::size_t>(max_bytes), static_cast<std::size_t>(max_files), true);
+}
+
+std::shared_ptr<spdlog::sinks::sink> make_console_sink(const std::string& pattern) {
+    auto sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    sink->set_pattern(pattern);
+    return sink;
+}
+
+std::shared_ptr<spdlog::sinks::sink> make_callback_sink(
+    void (*callback)(const char* line, uint32_t len, int level, void* user), void* user,
+    std::shared_ptr<spdlog::formatter> fmt) {
+    return std::make_shared<spdlog::sinks::callback_sink_mt>(
+        [callback, user, fmt](const spdlog::details::log_msg& msg) {
+            if (callback == nullptr) return;
+            spdlog::memory_buf_t buf;
+            fmt->format(msg, buf);
+            callback(buf.data(), static_cast<uint32_t>(buf.size()), static_cast<int>(msg.level),
+                     user);
+        });
+}
+
+// DIE VIER FORMATIERER-FABRIKEN. Sie setzen je ein Muster zusammen und haengen die drei Flaggen
+// von oben an — die EINE Stelle, an der steht, wie eine Logzeile aussieht. Das Tier-Dateimuster
+// und das Standalone-Dateimuster sind byteweise dasselbe, weil sie DIESELBE Funktion sind und
+// nicht, weil zwei Stellen dasselbe behaupten.
+
+std::unique_ptr<spdlog::formatter> make_file_formatter(const char* label) {
+    auto formatter = std::make_unique<spdlog::pattern_formatter>();
+    formatter->add_flag<ColoredLevelFlag>('*');
+    formatter->add_flag<SemanticMessageFlag>('~');
+    formatter->set_pattern(std::string("\x1b[") + detail::display_timestamp_sgr() +
+                           "m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] [" + std::string(label) +
+                           "] %~");
+    return formatter;
+}
+
+std::unique_ptr<spdlog::formatter> make_ring_formatter() {
+    auto formatter = std::make_unique<spdlog::pattern_formatter>();
+    formatter->add_flag<PlainLevelFlag>('#');
+    formatter->add_flag<SemanticMessageFlag>('~');
+    formatter->set_pattern("[%H:%M:%S.%e] [%#] %~");
+    return formatter;
+}
+
+std::unique_ptr<spdlog::formatter> make_tui_file_formatter(const char* label) {
+    auto formatter = std::make_unique<spdlog::pattern_formatter>();
+    formatter->add_flag<PlainLevelFlag>('#');
+    formatter->add_flag<SemanticMessageFlag>('~');
+    formatter->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%#] [ASE] [" + std::string(label) + "] %~");
+    return formatter;
+}
+
+std::shared_ptr<spdlog::formatter> make_tui_callback_formatter(const char* label) {
+    auto formatter = std::make_shared<spdlog::pattern_formatter>(spdlog::pattern_time_type::local,
+                                                                std::string());
+    formatter->add_flag<ColoredLevelFlag>('*');
+    formatter->add_flag<SemanticMessageFlag>('~');
+    formatter->set_pattern(std::string("\x1b[") + detail::display_timestamp_sgr() +
+                           "m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m [%*] [ASE] [" + std::string(label) +
+                           "] %~");
+    return formatter;
+}
+
+}  // namespace internal
 
 }  // namespace ase::log

@@ -138,6 +138,24 @@ add_library(${PROJECT_NAME} STATIC
     src/log_capture.cpp
     src/log_resource_manager.cpp
     src/log_query.cpp
+    #[[
+    Zwei weitere Auszuege aus log_sys.cpp, 2026-08-30. Der Abnehmer trennt sie, nicht die Laenge:
+    log_boot laeuft VOR jedem System und sieht nie eine Registry, log_standalone baut denselben
+    Logger fuer Programme OHNE Kernel (ase-edge-daemon, ase-cli).
+
+    HIER STANDEN BIS 2026-08-31 src/log_sinks.cpp UND src/log_format.cpp, mit derselben
+    Begruendung: sie trugen die Bauformen der Senken und der Formatierer, die on_start und beide
+    Standalone-Einstiege brauchen. Der Abnehmer-Grund stimmte, der ORT nicht. Beide Dateien gaben
+    den spdlog-Typ in ihrer OEFFENTLICHEN Signatur zurueck und exportierten die Bibliothek damit
+    aus dem Wrapper heraus, statt sie zu kapseln — und die namentliche Ausnahme von
+    SPDLOG_DIRECT_FORBIDDEN nennt fuenf Dateien, von denen keine so hiess. Die sieben Fabriken
+    stehen jetzt in src/log_resource_manager.cpp, bei dem, der die Senken ohnehin haelt und
+    einhaengt. Mit ihnen entfiel include/ase/log/internal/log_pattern_flags.hpp: seine drei
+    Musterflaggen hatten baumweit genau EINEN Verbraucher und liegen jetzt als
+    Implementierungsdetail in dessen anonymem Namensraum.
+    ]]
+    src/log_boot.cpp
+    src/log_standalone.cpp
     src/log_cat_gen.cpp
     src/log_err_cat_gen.cpp
     src/log_display.cpp
@@ -149,12 +167,60 @@ add_library(${PROJECT_NAME} STATIC
     ]]
     include/ase/log/colors.hpp
     include/ase/log/log.hpp
+
+    #[[
+    DIE ROTATIONS-SSOT, seit 2026-08-31 aus log.hpp herausgeschnitten.
+    Der Schnitt folgt dem EINSATZZWECK und ist an seinen Verbraucherkreisen gemessen:
+    log.hpp wird von 2224 Uebersetzungseinheiten eingebunden, die Quota-Symbole von SECHS
+    Dateien (internal/log_files.hpp, src/log_files.cpp, src/log_sys.cpp, log.hpp selbst sowie
+    tools/ase-edge-daemon/.../backend_paths.cpp und tools/ase-cli/src/logs/logs_cmd.cpp).
+    Eine geaenderte Rotationsschranke uebersetzte damit 2224 Einheiten neu, obwohl sechs sie
+    lesen — nicht die Zeilenzahl war der Anlass, sondern diese Kopplung.
+    ]]
+    include/ase/log/log_quota.hpp
+
+    #[[
+    DER LEBENSZYKLUS, am 2026-08-31 im zweiten Schnitt aus log.hpp herausgeloest — nach
+    demselben Massstab wie die Quota darueber: EINSATZZWECK, gemessen am Verbraucherkreis.
+    Hier standen die vier Einstiege fuer Programme OHNE ECS-Welt (init, init_server_standalone,
+    init_tui_standalone, install_capture_logger), die Capture-Klammer um Boot- und
+    Abschalt-Tabelle, der Filter-Einstieg aus argv, finalize_logger_after_boot und shutdown.
+    Gerufen werden sie von 22 Dateien ausserhalb dieses Moduls — init aus 14, shutdown aus 10,
+    die Capture-Klammer aus 3 —, waehrend log.hpp in 2224 Uebersetzungseinheiten steht.
+
+    ZWEI DINGE MACHEN DEN SCHNITT WIRKSAM STATT KOSMETISCH, und beide sind Absicht:
+    log.hpp bekommt KEINEN Durchreicher auf diesen Header (sonst haengt der ganze Baum weiter
+    am Lebenszyklus), und dieser Header nennt keinen Typ der Logbibliothek mehr — `init` und
+    `shutdown` waren `inline` und griffen dafuer direkt auf sie zu; ihre Rumpfe stehen jetzt
+    bei ihren Geschwistern in src/log_standalone.cpp, dessen Kopf genau diesen Zweck traegt.
+
+    KEINE NEUE LINKKANTE, gemessen: internal::logger_slot() ist in log.hpp nur deklariert und
+    ausserhalb definiert. Wer log::info ruft, ruft sie — jeder Aufrufer linkt also ohnehin
+    gegen diese Bibliothek, und eine nicht-inline init verlangt nichts, was vorher fehlte.
+    ]]
+    include/ase/log/log_lifecycle.hpp
+
+    #[[
+    DIE CLIENT-WEITERLEITUNG, am 2026-08-31 im dritten Schnitt aus log.hpp geloest. Sie schreibt
+    in den ZWEITEN Logger des Moduls und bedient damit Zeilen, die ueber RTC aus einem Browser
+    hereinkommen — ein anderer Zweck als der Serveraufruf, der log.hpp traegt.
+
+    GEMESSEN: die client_*-Familie hat NULL Aufrufer im ganzen Baum, mit und ohne log::-Praefix,
+    unabhaengig nachgemessen zu einem gleichlautenden Befund vom 2026-08-22. Positivkontrolle
+    derselben Sondenform: `info` in 1022 Dateien, `warn` in 2365. SIE BLEIBT VOLLSTAENDIG — der
+    zweite Logger existiert und wird gepflegt, es fehlt der Aufrufer, nicht die Sache. Aus einem
+    Header, den 2686 Dateien fuer den gewoehnlichen Aufruf einbinden, gehoert sie dennoch heraus.
+
+    Die Datei bindet log.hpp EIN, nie umgekehrt: ein Durchreicher dort haette den ganzen Baum
+    wieder an diese Familie gekoppelt. Sie nennt keinen Typ der Logbibliothek.
+    ]]
+    include/ase/log/log_client.hpp
+
     include/ase/log/log_cat_gen.hpp
     include/ase/log/log_err_cat_gen.hpp
     include/ase/log/log_display.hpp
     include/ase/log/log_filter.hpp
     include/ase/log/internal/log_files.hpp
-    include/ase/log/internal/log_pattern_flags.hpp
     include/ase/log/log_module.hpp
 )
 add_library(ase::log ALIAS ${PROJECT_NAME})

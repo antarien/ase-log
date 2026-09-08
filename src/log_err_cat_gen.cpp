@@ -59,6 +59,9 @@ const char* get_cat_name(uint32_t cat) {
     if (cat == ERR::CAT::COMPONENT_MISSING) {
         return "\x1b[38;2;215;95;95mCOMPONENT_MISSING\x1b[0m";
     }
+    if (cat == ERR::CAT::MANAGER_ABSENT) {
+        return "\x1b[38;2;215;95;95mMANAGER_ABSENT\x1b[0m";
+    }
     if (cat == ERR::CAT::INVALID_ENTITY) {
         return "\x1b[38;2;215;95;95mINVALID_ENTITY\x1b[0m";
     }
@@ -135,6 +138,12 @@ const char* get_cat_help(uint32_t cat) {
         return
             "Check that the entity was spawned with its required components and that no other system removed "
                 "the component";
+    }
+    if (cat == ERR::CAT::MANAGER_ABSENT) {
+        return
+            "Check that some system creates the manager entity and gives it its tag, and that the schedule "
+                "places that creation before this system. An empty view means no entity carries the tag at all, "
+                "so there is nothing to look inside";
     }
     if (cat == ERR::CAT::INVALID_ENTITY) {
         return
@@ -252,6 +261,9 @@ const char* get_cat_short(uint32_t cat) {
     if (cat == ERR::CAT::COMPONENT_MISSING) {
         return "reqd comp not on enty";
     }
+    if (cat == ERR::CAT::MANAGER_ABSENT) {
+        return "mgr enty was never crtd";
+    }
     if (cat == ERR::CAT::INVALID_ENTITY) {
         return "enty dstd or ID stale";
     }
@@ -331,6 +343,13 @@ const char* get_cat_tail(uint32_t cat) {
         return
             "\n\x1b[38;2;108;108;108m    "
             "chk enty was spawned with reqd components and no other sys rmvd comp"
+            "\x1b[0m\n";
+    }
+    if (cat == ERR::CAT::MANAGER_ABSENT) {
+        return
+            "\n\x1b[38;2;108;108;108m    "
+            "chk some sys creates mgr enty and gives it tag, and schd places creation bfr sys. empty view mns "
+                "no enty carries tag at all, so there is nothing to look insd"
             "\x1b[0m\n";
     }
     if (cat == ERR::CAT::INVALID_ENTITY) {
@@ -478,6 +497,9 @@ const char* get_cat_suffix(uint32_t cat) {
     if (cat == ERR::CAT::COMPONENT_MISSING) {
         return "";
     }
+    if (cat == ERR::CAT::MANAGER_ABSENT) {
+        return "";
+    }
     if (cat == ERR::CAT::INVALID_ENTITY) {
         return "";
     }
@@ -586,6 +608,9 @@ const char* get_wrn_cat_name(uint32_t cat) {
     if (cat == WRN::CAT::COMPONENT_MISSING) {
         return "\x1b[38;2;215;95;95mCOMPONENT_MISSING\x1b[0m";
     }
+    if (cat == WRN::CAT::MANAGER_ABSENT) {
+        return "\x1b[38;2;215;95;95mMANAGER_ABSENT\x1b[0m";
+    }
     if (cat == WRN::CAT::INVALID_ENTITY) {
         return "\x1b[38;2;215;95;95mINVALID_ENTITY\x1b[0m";
     }
@@ -689,6 +714,12 @@ const char* get_wrn_cat_help(uint32_t cat) {
             "Check that the entity was spawned with its required components and that no other system removed "
                 "the component. This entity is skipped and the rest of the view is processed";
     }
+    if (cat == WRN::CAT::MANAGER_ABSENT) {
+        return
+            "Check that some system creates the manager entity and gives it its tag, and that the schedule "
+                "places that creation before this system. An empty view means no entity carries the tag at all in "
+                "this pass, so there is nothing to look inside";
+    }
     if (cat == WRN::CAT::INVALID_ENTITY) {
         return
             "Check that the entity was not destroyed, that the stored entity ID is the right one and that no "
@@ -779,6 +810,9 @@ const char* get_wrn_cat_short(uint32_t cat) {
     }
     if (cat == WRN::CAT::COMPONENT_MISSING) {
         return "reqd comp not on enty";
+    }
+    if (cat == WRN::CAT::MANAGER_ABSENT) {
+        return "mgr enty was never crtd";
     }
     if (cat == WRN::CAT::INVALID_ENTITY) {
         return "enty dstd or ID stale";
@@ -909,6 +943,13 @@ const char* get_wrn_cat_tail(uint32_t cat) {
             "\n\x1b[38;2;108;108;108m    "
             "chk enty was spawned with reqd components and no other sys rmvd comp. enty is skipped and rest "
                 "of view is processed"
+            "\x1b[0m\n";
+    }
+    if (cat == WRN::CAT::MANAGER_ABSENT) {
+        return
+            "\n\x1b[38;2;108;108;108m    "
+            "chk some sys creates mgr enty and gives it tag, and schd places creation bfr sys. empty view mns "
+                "no enty carries tag at all in pass, so there is nothing to look insd"
             "\x1b[0m\n";
     }
     if (cat == WRN::CAT::INVALID_ENTITY) {

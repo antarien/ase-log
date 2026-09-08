@@ -58,6 +58,11 @@
  *   damit ist <filesystem> aus diesem Header verschwunden statt erklaert worden zu sein.
  */
 
+// LogQuota und die Rotationsschranken. Dieser Header nannte sie bisher, ohne sie einzubinden —
+// er bekam sie ueber die Datei, die ihn einband. Ein Header, der einen Typ benutzt, holt ihn
+// selbst; sonst haengt seine Uebersetzbarkeit an der Reihenfolge beim Einbinder.
+#include <ase/log/log_quota.hpp>
+
 #include <cstdint>
 #include <string>
 

@@ -81,6 +81,10 @@
 
 #include <ase/log/internal/log_files.hpp>
 
+// Die Rotations- und Aufbewahrungs-SSOT. Direkt eingebunden statt ueber den eigenen Header
+// mitgenommen: wer einen Typ benutzt, nennt die Datei, die ihn deklariert.
+#include <ase/log/log_quota.hpp>
+
 #include <ase/log/log.hpp>
 
 #include <spdlog/sinks/rotating_file_sink.h>

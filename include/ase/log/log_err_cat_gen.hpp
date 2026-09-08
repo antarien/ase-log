@@ -74,6 +74,20 @@ namespace CAT {
     // FNV-1a of "ERR_COMPONENT_MISSING" - the NAMESPACE is part of the
     // hashed string, so the mirrored halves are two distinct values.
     constexpr uint32_t COMPONENT_MISSING = 2810980563u;
+    // Der VERWALTER eines Moduls existiert nicht: die Sicht auf seinen Manager-Tag ist LEER,
+    // es gibt keine Entity zu nennen. Nicht COMPONENT_MISSING - das setzt eine VORHANDENE
+    // Entity voraus, der ein Component fehlt, und behauptet hier zweimal etwas Falsches, weil
+    // es weder eine Entity noch ein Component gibt. Nicht INVALID_ENTITY (nichts ist
+    // zerstoert, es wurde nie etwas angelegt), nicht REFERENCE_UNRESOLVED (es gibt keinen
+    // Verweis, es wird eine Sicht gebildet), nicht RESOURCE_UNAVAIL (das meint ausdruecklich
+    // eine Ressource AUSSERHALB der Registry, und eine Sicht IST die Registry), nicht
+    // HUB_NOT_FOUND (nicht der Hub, sondern der Manager-Tag eines Moduls). Die Bauform ist
+    // baumweit dieselbe: view<XxxMgrTag>() gefolgt von einer empty()- oder front()-Pruefung.
+    // ERR-Entsprechung von WRN::CAT::MANAGER_ABSENT: dieselbe Sache, aber der Vorgang endet
+    // hier statt weiterzulaufen.
+    // FNV-1a of "ERR_MANAGER_ABSENT" - the NAMESPACE is part of the
+    // hashed string, so the mirrored halves are two distinct values.
+    constexpr uint32_t MANAGER_ABSENT = 2050836936u;
     // Entity ID is invalid or destroyed
     // FNV-1a of "ERR_INVALID_ENTITY" - the NAMESPACE is part of the
     // hashed string, so the mirrored halves are two distinct values.
@@ -354,6 +368,15 @@ namespace CAT {
     // FNV-1a of "WRN_COMPONENT_MISSING" - the NAMESPACE is part of the
     // hashed string, so the mirrored halves are two distinct values.
     constexpr uint32_t COMPONENT_MISSING = 59028729u;
+    // Wie ERR::CAT::MANAGER_ABSENT, aber der Durchlauf geht weiter. Beide Ebenen werden
+    // gebraucht und die Wahl haengt am Kontrollfluss der Fundstelle, nicht an ihrer Schwere:
+    // wo das System hinter der Pruefung zurueckkehrt, ist es ERR, wo es die naechste Einheit
+    // nimmt und weitermacht, ist es WRN. Die Abgrenzung gegen COMPONENT_MISSING,
+    // INVALID_ENTITY, REFERENCE_UNRESOLVED, RESOURCE_UNAVAIL und HUB_NOT_FOUND steht
+    // ausgeschrieben unter ERR::CAT::MANAGER_ABSENT und gilt hier unveraendert.
+    // FNV-1a of "WRN_MANAGER_ABSENT" - the NAMESPACE is part of the
+    // hashed string, so the mirrored halves are two distinct values.
+    constexpr uint32_t MANAGER_ABSENT = 410794518u;
     // Wie ERR::CAT::INVALID_ENTITY, aber der Durchlauf geht weiter. Nicht
     // REFERENCE_UNRESOLVED: dort ist der Verweis wohlgeformt und sein Ziel fehlt, hier ist
     // schon die Kennung selbst ungueltig.
