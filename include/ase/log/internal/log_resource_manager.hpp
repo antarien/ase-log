@@ -4,6 +4,7 @@
  * ASE RESOURCE MANAGER (NOT A COMPONENT!)
  *
  * @file        log_resource_manager.hpp
+ * @design      DSGN_021
  * @brief       LogResourceManager - Flyweight Pattern fuer die spdlog-Senken und -Logger
  * @description Haelt die Besitzzeiger auf Logger und Senken AUSSERHALB des Systems, BAUT sie und
  *              haengt sie ein. Wer eine Senke oder einen Formatierer braucht, ruft hier — statt

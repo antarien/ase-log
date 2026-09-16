@@ -4,6 +4,7 @@
  * ASE CORE INFRASTRUCTURE HEADER
  *
  * @file        log_filter.hpp
+ * @design      DSGN_021
  * @brief       Runtime log filtering by category and level
  * @description Fast log filtering that extracts categories from filenames.
  *              Categories are matched against

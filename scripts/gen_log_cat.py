@@ -1446,6 +1446,7 @@ def generate_err_cat_header(cats: dict, output_path: Path) -> bool:
            ' * core/ase-log/scripts/gen_log_cat.py instead. A hand fix here survives',
            ' * exactly until the next generator run.', ' *',
            ' * @file        log_err_cat_gen.hpp',
+           ' * @design      DSGN_021',
            ' * @brief       ERR::CAT and WRN::CAT name hashes plus the lookup declarations',
            ' * @description Constants only - each one is the FNV-1a hash of its own NAME.',
            ' *              There is no id, no table and no counter: a category cannot be',

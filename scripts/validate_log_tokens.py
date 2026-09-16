@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# @design      DSGN_021
 """
 Validate Log Tokens — Diagnostic Script
 ========================================

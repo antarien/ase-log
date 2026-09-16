@@ -18,6 +18,7 @@
  *
  * @module      ase-log
  * @layer       1 (Core)
+ * @design      DSGN_021
  * @category    error/logging
  * @created     2024-01-01
  * @modified    2025-01-21

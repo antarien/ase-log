@@ -4,6 +4,7 @@
  * ASE CORE INFRASTRUCTURE HEADER
  *
  * @file        log_client.hpp
+ * @design      DSGN_021
  * @brief       Weiterleitung von Browser-Konsolenzeilen in das Serverlog
  * @description Die client_*-Familie schreibt in den ZWEITEN Logger des Moduls
  *              (LogSystem::client_logger) — ohne [SERVER]-Praefix, weil die Zeile nicht vom

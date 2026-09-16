@@ -1,6 +1,6 @@
 /**
  * ASE ECS SYSTEM IMPLEMENTATION
- *
+ * @design      DSGN_021
  * @file        log_sys.cpp
  * @brief       LogSystem - brings up and tears down the logging sinks
  * @module      ase-log
@@ -248,7 +248,7 @@ using namespace entt::literals;  // For "_hs hashed strings (Hub)
 using internal::make_rotating_file_sink;
 using internal::resolve_log_path;
 
-// AUSGEZOGEN 2026-08-24, seit 2026-08-31 in src/log_resource_manager.cpp: ColoredLevelFlag (%*),
+// AUSGEZOGEN 2026-08-24, seit 2026-08-31 in src/log_capture.cpp: ColoredLevelFlag (%*),
 // PlainLevelFlag (%#) und der neue SemanticMessageFlag (%~). Die Flags sind die EINE Stelle,
 // an der die Bytes eines Kanals entstehen; sie sind bewusst spdlog-gebunden — die Bibliothek
 // verlangt fuer eine Musterflagge Vererbung UND clone(), beides ist ohne sie nicht zu haben.

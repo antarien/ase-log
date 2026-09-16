@@ -11,6 +11,7 @@
  *
  * @module      ase-log
  * @layer       1 (Core)
+ * @design      DSGN_021
  * @category    ecs/module
  * @created     2026-08-20
  * @modified    2026-08-20
