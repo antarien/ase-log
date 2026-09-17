@@ -1756,7 +1756,8 @@ def main():
     ase_log_dir = script_dir.parent     # ase-log/
     project_root = ase_log_dir.parent.parent  # ase/ (up from core/ase-log)
 
-    taxonomy_dir = project_root / "core" / "ase-validator" / "ecs_validator" / "data" / "taxonomy"
+    taxonomy_dir = (project_root / "tools" / "ase-forge" / "ase-validator"
+                    / "ecs_validator" / "data" / "taxonomy")
     hub_data_dir = project_root / "modules" / "ase-hub" / "data"
     header_path = ase_log_dir / "include" / "ase" / "log" / "log_cat_gen.hpp"
     impl_path = ase_log_dir / "src" / "log_cat_gen.cpp"

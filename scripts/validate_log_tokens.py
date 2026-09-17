@@ -57,7 +57,7 @@ from gen_log_cat import (
 # `scripts/prebuild/`. Die Migration vom 2026-08-23 hat ein VERZEICHNIS abgearbeitet; die LISTE
 # steht in `gates.conf`, und dort stand dieses Tor die ganze Zeit. Dieselbe Klasse wie sein
 # Fehlen im Laeufer bis zum 2026-08-20.
-sys.path.insert(0, str(PROJECT_ROOT / 'core' / 'ase-validator'))
+sys.path.insert(0, str(PROJECT_ROOT / 'tools' / 'ase-forge' / 'ase-validator'))
 from ecs_validator.validators.rule_engine import apply_structural_rule   # noqa: E402
 from ecs_validator.validators.rule_loader import get_config_value        # noqa: E402
 
@@ -140,7 +140,8 @@ def run_analysis(args: argparse.Namespace) -> int:
     if args.no_color:
         set_no_color(True)
 
-    taxonomy_dir = PROJECT_ROOT / "core" / "ase-validator" / "ecs_validator" / "data" / "taxonomy"
+    taxonomy_dir = (PROJECT_ROOT / "tools" / "ase-forge" / "ase-validator"
+                    / "ecs_validator" / "data" / "taxonomy")
     hub_data_dir = PROJECT_ROOT / "modules" / "ase-hub" / "data"
 
     if not taxonomy_dir.exists():
