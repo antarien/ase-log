@@ -67,7 +67,7 @@ if(DEFINED ASE_ROOT)
 else()
     set(_ASE_BASE "${CMAKE_SOURCE_DIR}")
 endif()
-set(_TAXONOMY_DIR "${_ASE_BASE}/core/ase-validator/ecs_validator/data/taxonomy")
+set(_TAXONOMY_DIR "${_ASE_BASE}/tools/ase-forge/ase-validator/ecs_validator/data/taxonomy")
 set(_STAMP_FILE "${CMAKE_CURRENT_BINARY_DIR}/ase-log-codegen.stamp")
 
 add_custom_command(
