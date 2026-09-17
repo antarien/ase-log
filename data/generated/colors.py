@@ -509,7 +509,11 @@ class C:
     GEOID_ABSENT_ROW = "\033[38;2;47;69;80m"  # cells stand, no measurement was delivered
 
     # -- 24. ASE WIKI GRAPH — the three codings of the knowledge window --
-    WIKI_TRUTH_DSGN = "\033[38;2;74;140;106m"  # design decides — the strongest ground
+    WIKI_TRUTH_AKTEUR = "\033[38;2;99;113;61m"  # the actor — the subject above which nothing stands
+    WIKI_TRUTH_AKTEUR_INK = "\033[38;2;240;243;231m"  # ink on the actor mark — 4.72:1
+    WIKI_TRUTH_USECASE = "\033[38;2;169;128;96m"  # the use case — which capability carries it
+    WIKI_TRUTH_USECASE_INK = "\033[38;2;24;14;6m"  # ink on the use case mark — 5.38:1
+    WIKI_TRUTH_DSGN = "\033[38;2;74;140;106m"  # design decides — the strongest DOCUMENT ground
     WIKI_TRUTH_DSGN_INK = "\033[38;2;5;16;10m"  # ink on the design mark — 4.84:1
     WIKI_TRUTH_SSOT = "\033[38;2;156;140;74m"  # single source of truth
     WIKI_TRUTH_SSOT_INK = "\033[38;2;21;17;5m"  # ink on the SSOT mark — 5.62:1
@@ -519,8 +523,10 @@ class C:
     WIKI_TRUTH_PLAN_INK = "\033[38;2;240;236;255m"  # ink on the plan mark
     WIKI_TRUTH_CODE = "\033[38;2;74;85;96m"  # the code itself — evidence, not authority
     WIKI_TRUTH_CODE_INK = "\033[38;2;223;230;236m"  # ink on the code mark
-    WIKI_TRUTH_COMMENTS = "\033[38;2;30;42;51m"  # a comment in the code — the weakest rank
+    WIKI_TRUTH_COMMENTS = "\033[38;2;30;42;51m"  # a comment in the code — weaker than the code
     WIKI_TRUTH_COMMENTS_INK = "\033[38;2;182;194;204m"  # ink on the comment mark
+    WIKI_TRUTH_JRN = "\033[38;2;61;164;164m"  # a journal entry — the LOWEST rung, one session
+    WIKI_TRUTH_JRN_INK = "\033[38;2;6;24;24m"  # ink on the journal mark — 6.12:1
     WIKI_TRUTH_EXTERN = "\033[38;2;184;134;58m"  # a foreign original, outside the order
     WIKI_TRUTH_EXTERN_INK = "\033[38;2;26;18;0m"  # dark ink — the one bright ground
     WIKI_TRUTH_UNSOURCED = "\033[38;2;165;34;34m"  # no source at all: a claim, not knowledge
@@ -539,6 +545,22 @@ class C:
     WIKI_KIND_CLASS = "\033[38;2;206;59;186m"  # a class of the design model
     WIKI_KIND_NOTE = "\033[38;2;126;41;224m"  # a note pinned to an element
     WIKI_KIND_DSGN = "\033[38;2;212;102;122m"  # the rarer design entities, together
+    WIKI_KIND_SESSION = "\033[38;2;58;74;136m"  # who worked — one session over the stock
+    WIKI_KIND_TERM = "\033[38;2;236;214;19m"  # which word — the vocabulary a page uses
+    WIKI_KIND_SCRIPT = "\033[38;2;236;19;77m"  # which tool produced it
+    WIKI_KIND_ORIGIN = "\033[38;2;229;19;236m"  # where it was carried over from
+    WIKI_DOM_NONE = "\033[38;2;107;114;128m"  # carries no domain — an answer, not a fallback
+    WIKI_DEPTH_1 = "\033[38;2;32;121;113m"  # 4 … 6 chunks
+    WIKI_DEPTH_2 = "\033[38;2;44;139;165m"  # 7 … 8
+    WIKI_DEPTH_3 = "\033[38;2;62;130;204m"  # 9 … 11
+    WIKI_DEPTH_4 = "\033[38;2;106;126;215m"  # 12 … 14
+    WIKI_DEPTH_5 = "\033[38;2;159;150;227m"  # 15 and up — the long tail to 66
+    WIKI_SPAN_1 = "\033[38;2;94;101;151m"  # 2 rungs — headroom below the measured range
+    WIKI_SPAN_2 = "\033[38;2;60;129;176m"  # 3 — actor · use case · code, and nothing between
+    WIKI_SPAN_3 = "\033[38;2;5;156;185m"  # 4 — the commonest: one document rung carries it
+    WIKI_SPAN_4 = "\033[38;2;46;180;177m"  # 5
+    WIKI_SPAN_5 = "\033[38;2;111;200;160m"  # 6 — the measured maximum, 3 pages
+    WIKI_SPAN_6 = "\033[38;2;176;216;145m"  # 7 and up — headroom above
     WIKI_RUNG_ARCH = "\033[38;2;209;148;178m"  # ARCH — the SSOT, what is built
     WIKI_RUNG_CAUSA = "\033[38;2;203;146;135m"  # CAUSA — why it is built that way
     WIKI_RUNG_INST = "\033[38;2;198;185;121m"  # INST — how it is done

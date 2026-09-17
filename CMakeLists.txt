@@ -299,7 +299,9 @@ today. STD_FSTREAM_FORBIDDEN used to say "ase-persist is an empty stub module - 
 to it" and named the gap: ase-fileio could read and not write. The rule text now reads "Use
 ase::fileio from foundation", and text_writer.hpp::write_text exists. log_files.cpp reads and
 writes logs/quota.conf; those were the last two std::ifstream/std::ofstream in this module.
-Precedent for the binding: core/ase-codegen, core/ase-convert, clients/ase-client-explorer.
+Precedent for the binding: tools/ase-codegen, core/ase-convert, clients/ase-client-explorer.
+Der erste Pfad stand bis 2026-09-17 als core/ase-codegen da und loeste nicht auf; die anderen
+zwei taten es, und genau deshalb las sich die Liste vertrauenswuerdig.
 ]]
 #[[
 ase::utils ADDED 2026-08-20, AND IT WAS MISSING WHILE ALREADY BEING USED.
