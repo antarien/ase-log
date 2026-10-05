@@ -68,8 +68,41 @@ else()
     set(_ASE_BASE "${CMAKE_SOURCE_DIR}")
 endif()
 set(_TAXONOMY_DIR "${_ASE_BASE}/tools/ase-forge/ase-validator/ecs_validator/data/taxonomy")
+set(_HUB_DATA_DIR "${_ASE_BASE}/modules/ase-hub/data")
 set(_STAMP_FILE "${CMAKE_CURRENT_BINARY_DIR}/ase-log-codegen.stamp")
 
+# ── DIE SSOT MUSS ERREICHBAR SEIN, SONST GIBT ES NICHTS ZU PRUEFEN ──────
+#
+# Dieser Schritt vergleicht die Logkategorien gegen ZWEI FREMDE Baeume — die Taxonomie in
+# tools/ase-forge und die Hub-Daten in modules/ase-hub — und fordert vierzig Dateien daraus
+# als harte Abhaengigkeit. In einem Vollbaum ist das richtig. In einem TEILBAUM liegt keine
+# davon, und Ninja bricht ab, bevor eine Zeile uebersetzt ist:
+# „missing and no known rule to make it".
+#
+# GEMESSEN SIND SECHS BAUTEN BETROFFEN, nicht einer: ase-client-explorer, aet-client-native,
+# avt-client-android, ase-edge-daemon, ase-codegen und ase-cli konfigurieren dieses Modul
+# standalone. Jeder Paketbau aus einem Quellenausschnitt trifft denselben Abbruch, und bisher
+# fiel er nur deshalb nicht auf, weil ASE_ROOT ungesetzt auf die Aufruferwurzel zeigte und
+# dort ebenfalls nichts lag — ein Fehler, der einen anderen verdeckte.
+#
+# DAS ERZEUGNIS IST EINGECHECKT: log_cat_gen.hpp, log_err_cat_gen.hpp und die drei
+# zugehoerigen .cpp liegen im Repo und stehen oben in der Quellenliste. Ein Teilbaum
+# uebersetzt also den freigegebenen Stand — er soll ihn nicht neu erzeugen, denn ohne SSOT
+# waere jede Neuerzeugung eine Behauptung ohne Grundlage.
+#
+# UND DAS WIRD GEMELDET, NICHT VERSCHWIEGEN. Eine stille Ueberspringung waere der Fall, vor
+# dem die Haeuserregel warnt: ein uebergangener Schritt sieht wie ein gelaufener aus. Die
+# Zeile nennt den Pfad, an dem gesucht wurde, damit der Leser die Lage selbst nachsieht.
+if(EXISTS "${_TAXONOMY_DIR}/_index.json" AND EXISTS "${_HUB_DATA_DIR}/hub_constants.json")
+    set(_ASE_LOG_CODEGEN_POSSIBLE TRUE)
+else()
+    set(_ASE_LOG_CODEGEN_POSSIBLE FALSE)
+    message(STATUS
+        "ase-log: taxonomy SSOT not reachable (${_TAXONOMY_DIR}) — "
+        "compiling the checked-in generated sources, no regeneration")
+endif()
+
+if(_ASE_LOG_CODEGEN_POSSIBLE)
 add_custom_command(
     OUTPUT ${_STAMP_FILE}
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_log_cat.py"
@@ -114,13 +147,20 @@ add_custom_command(
             "${_TAXONOMY_DIR}/34_cfg_config.json"
             "${_TAXONOMY_DIR}/35_err_error.json"
             "${_TAXONOMY_DIR}/36_ant_antares.json"
-            "${_ASE_BASE}/modules/ase-hub/data/hub_constants.json"
-            "${_ASE_BASE}/modules/ase-hub/data/hub_metrics.json"
-            "${_ASE_BASE}/modules/ase-hub/data/hub_tags.json"
+            "${_HUB_DATA_DIR}/hub_constants.json"
+            "${_HUB_DATA_DIR}/hub_metrics.json"
+            "${_HUB_DATA_DIR}/hub_tags.json"
     COMMENT "Checking log categories (regenerates only if taxonomy or hub JSON changed)..."
 )
 
 add_custom_target(ase-log-codegen DEPENDS ${_STAMP_FILE})
+else()
+# DAS ZIEL BLEIBT, DER INHALT FAELLT WEG. Zeile 262 haengt die Bibliothek ueber
+# add_dependencies an ase-log-codegen; ohne das Ziel brach die Konfiguration mit einem
+# unbekannten Namen ab. Ein leeres Ziel ist hier kein Platzhalter, sondern die richtige
+# Aussage: der Schritt existiert, hat in diesem Baum aber nichts zu tun.
+add_custom_target(ase-log-codegen)
+endif()
 
 # ==============================================================================
 # BUILD CONFIGURATION
