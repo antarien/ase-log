@@ -9,8 +9,6 @@ class C:
     RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
-
-    # -- 1. SURFACE SCALE --
     SURFACE_0 = "\033[38;2;0;0;0m"  # pure black base
     SURFACE_0_PANEL = "\033[38;2;4;4;4m"  # panel bg, docs bg
     SURFACE_0_INNER = "\033[38;2;8;8;8m"  # conic gradient inner ring
@@ -26,8 +24,6 @@ class C:
     SURFACE_5 = "\033[38;2;42;42;42m"  # highest elevation (card, border)
     SURFACE_5_SELECT = "\033[38;2;48;48;48m"  # selected button bg
     SURFACE_5_RULE = "\033[38;2;53;53;53m"  # chart rule tertiary
-
-    # -- 2. TEXT SCALE --
     TEXT_DIVIDER = "\033[38;2;58;58;58m"  # separator, pipe chars
     TEXT_DISABLED = "\033[38;2;58;69;69m"  # disabled state
     TEXT_FLOW = "\033[38;2;64;64;64m"  # flow arrow, batch status
@@ -50,8 +46,6 @@ class C:
     TEXT_LIGHT = "\033[38;2;204;204;204m"  # light gray
     TEXT_DOCS_FG = "\033[38;2;221;221;221m"  # docs foreground
     TEXT_TERMINAL = "\033[38;2;224;224;224m"  # terminal output text
-
-    # -- 3. BORDER SCALE --
     BORDER_SECONDARY = "\033[38;2;31;31;31m"  # subtle borders
     BORDER_PRIMARY = "\033[38;2;42;42;42m"  # primary borders
     BORDER_ACTIVE = "\033[38;2;58;90;58m"  # active/focused (green)
@@ -65,8 +59,6 @@ class C:
     BORDER_A50 = "\033[38;2;115;115;115m"  # standard panel border
     BORDER_DARK = "\033[38;2;38;38;38m"  # dark border
     BORDER_LOG = "\033[38;2;57;55;69m"  # log border (purple)
-
-    # -- 4. PANEL ACCENT PALETTE --
     PANEL_CYAN = "\033[38;2;90;156;184m"
     PANEL_GREEN = "\033[38;2;74;140;106m"
     PANEL_ORANGE = "\033[38;2;184;134;58m"
@@ -77,8 +69,6 @@ class C:
     MENU_RED = "\033[38;2;127;29;30m"  # aow-red: extracted from aow-banner.jpg UI elements
     MENU_RED_HOVER = "\033[38;2;127;29;30m"  # aow-red hover bg (subtle)
     MENU_GREEN_DONE = "\033[38;2;10;61;10m"  # press complete indicator (dark green)
-
-    # -- 5. SEMANTIC STATUS --
     SUCCESS_BG = "\033[38;2;58;106;58m"
     SUCCESS_TEXT = "\033[38;2;144;238;144m"
     SUCCESS_OVERLAY = "\033[38;2;58;106;58m"
@@ -117,8 +107,6 @@ class C:
     WIZARD_INFO_BLUE_A = "\033[38;2;128;192;255m"  # alpha: info blue border
     WIZARD_AMBER = "\033[38;2;245;158;11m"  # amber: L4 plugin layer color
     CURATOR_AGE_FLAG = "\033[38;2;26;5;5m"  # dark blackish-red: prompt contains minor-indicating terms
-
-    # -- 6. TERMINAL COLORS --
     TERM_RED = "\033[38;2;204;0;0m"
     TERM_ORANGE = "\033[38;2;255;136;0m"
     TERM_YELLOW = "\033[38;2;255;204;0m"
@@ -127,14 +115,10 @@ class C:
     TERM_BLUE = "\033[38;2;0;136;255m"
     TERM_PURPLE = "\033[38;2;170;0;255m"
     TERM_PINK = "\033[38;2;255;0;204m"
-
-    # -- 7. CONNECTION STATUS --
     CONN_CONNECTED = "\033[38;2;0;204;0m"
     CONN_CONNECTING = "\033[38;2;255;204;0m"
     CONN_DISCONNECTED = "\033[38;2;204;0;0m"
     CONN_IDLE = "\033[38;2;102;102;102m"
-
-    # -- 8. DOCS VIEWER --
     DOCS_H1 = "\033[38;2;128;222;255m"  # cyan — top level
     DOCS_H2 = "\033[38;2;186;208;45m"  # chartreuse — section
     DOCS_H3 = "\033[38;2;224;160;96m"  # warm orange — subsection
@@ -169,8 +153,6 @@ class C:
     DIFF_REMOVE_BG = "\033[38;2;255;60;60m"
     DIFF_REMOVE_FG = "\033[38;2;224;126;126m"
     DIFF_INFO_BG = "\033[38;2;0;120;255m"
-
-    # -- 9. DOC COMPONENT STATUS (9-state lifecycle) --
     STATUS_SEED = "\033[38;2;90;90;90m"
     STATUS_POC = "\033[38;2;139;90;139m"
     STATUS_INIT = "\033[38;2;106;90;139m"
@@ -180,14 +162,10 @@ class C:
     STATUS_ALPHA = "\033[38;2;168;74;74m"
     STATUS_BETA = "\033[38;2;122;90;156m"
     STATUS_STABLE = "\033[38;2;74;140;106m"
-
-    # -- 10. DOC AGE --
     AGE_HOT = "\033[38;2;74;140;106m"  # < 7 days
     AGE_WARM = "\033[38;2;90;122;156m"  # 7-30 days
     AGE_COLD = "\033[38;2;184;134;58m"  # 30-90 days
     AGE_STALE = "\033[38;2;90;90;90m"  # > 90 days
-
-    # -- 11. API TESTER --
     API_GET_BG = "\033[38;2;42;74;58m"
     API_GET_TEXT = "\033[38;2;138;202;138m"
     API_POST_BG = "\033[38;2;42;74;90m"
@@ -214,8 +192,6 @@ class C:
     API_STATUS_ERROR_GLOW = "\033[38;2;168;74;74m"
     API_STATUS_SSE_BORDER = "\033[38;2;106;80;128m"
     API_STATUS_SSE_GLOW = "\033[38;2;106;80;128m"
-
-    # -- 12. LOG LEVELS --
     LOG_TRACE = "\033[38;2;132;124;132m"  # mauve
     LOG_DEBUG = "\033[38;2;128;222;255m"  # cyan
     LOG_INFO = "\033[38;2;144;238;144m"  # green
@@ -248,8 +224,6 @@ class C:
     LOG_CSS_WARNING = "\033[38;2;255;204;0m"
     LOG_CSS_ERROR = "\033[38;2;204;0;0m"
     LOG_CSS_CRITICAL = "\033[38;2;255;0;204m"
-
-    # -- 13. CHART / DATAVIZ --
     CHART_RULE_PRIMARY = "\033[38;2;184;134;58m"
     CHART_RULE_SECONDARY = "\033[38;2;42;42;42m"
     CHART_RULE_TERTIARY = "\033[38;2;53;53;53m"
@@ -265,8 +239,6 @@ class C:
     CHART_CANVAS_GRID = "\033[38;2;102;102;102m"
     CHART_CANVAS_BORDER = "\033[38;2;51;51;51m"
     CHART_CANVAS_TEXT = "\033[38;2;136;136;136m"
-
-    # -- 14. 3D RENDERING --
     RENDER_GRID_CELL = "\033[38;2;42;42;58m"  # grid cell (purple tint)
     RENDER_GRID_SECTION = "\033[38;2;74;74;106m"  # grid section (purple tint)
     RENDER_FOG = "\033[38;2;37;21;16m"  # fog color (brown-red)
@@ -282,8 +254,6 @@ class C:
     RENDER_BLACK = "\033[38;2;0;0;0m"  # outline black
     RENDER_SKY_SUN = "\033[38;2;255;238;136m"  # sky/sun yellow
     RENDER_MOON_BASE = "\033[38;2;221;221;255m"  # moon base color (blue-white)
-
-    # -- 15. ENTITY INSPECTOR --
     ENTITY_VALUE_NAN = "\033[38;2;90;90;90m"  # NaN → gray
     ENTITY_VALUE_NUMBER = "\033[38;2;74;140;106m"  # number → green
     ENTITY_VALUE_TRUE = "\033[38;2;74;140;106m"  # bool true → green
@@ -292,8 +262,6 @@ class C:
     ENTITY_VALUE_DEFAULT = "\033[38;2;154;154;154m"  # fallback → gray
     ENTITY_TAG_BG = "\033[38;2;138;92;184m"  # tag purple bg
     ENTITY_TAG_TEXT = "\033[38;2;184;136;216m"  # tag purple text
-
-    # -- 16. SHADOWS & OVERLAYS --
     SHADOW_SM = "\033[38;2;0;0;0m"
     SHADOW_MD = "\033[38;2;0;0;0m"
     SHADOW_LG = "\033[38;2;0;0;0m"
@@ -306,15 +274,11 @@ class C:
     OVERLAY_LIGHTBOX = "\033[38;2;0;0;0m"
     OVERLAY_GREEN_LIGHT = "\033[38;2;74;140;106m"
     OVERLAY_GREEN_MED = "\033[38;2;74;140;106m"
-
-    # -- 18. BOOTSTRAP LOGGER (console.log styles) --
     BOOT_CYAN = "\033[38;2;0;206;209m"
     BOOT_GREEN = "\033[38;2;50;205;50m"
     BOOT_YELLOW = "\033[38;2;255;215;0m"
     BOOT_GRAY = "\033[38;2;128;128;128m"
     BOOT_MAGENTA = "\033[38;2;255;0;255m"
-
-    # -- 19. GLYPH DEBUG (SVG debug overlay — path distinction + debug UI) --
     GLYPH_DBG_RED = "\033[38;2;255;51;51m"  # debug path 1
     GLYPH_DBG_GREEN = "\033[38;2;51;204;51m"  # debug path 2
     GLYPH_DBG_BLUE = "\033[38;2;51;136;255m"  # debug path 3
@@ -327,8 +291,6 @@ class C:
     GLYPH_DBG_TEXT = "\033[38;2;204;204;204m"  # debug body text
     GLYPH_DBG_HEADING = "\033[38;2;136;136;136m"  # debug heading
     GLYPH_DBG_LABEL = "\033[38;2;102;102;102m"  # debug label
-
-    # -- 20. CMS PORTAL --
     CMS_HERO_OVERLAY = "\033[38;2;4;4;4m"
     CMS_HERO_TEXT = "\033[38;2;255;255;255m"  # hero heading white
     CMS_CARD_BG = "\033[38;2;10;10;10m"
@@ -458,8 +420,6 @@ class C:
     CMS_CRAWL_TITLE = "\033[38;2;127;29;30m"  # Antares red (title + subtitle)
     CMS_CRAWL_HEADING = "\033[38;2;224;160;96m"  # warm orange (section headings)
     CMS_CRAWL_COPYRIGHT = "\033[38;2;224;160;96m"  # warm orange (footer, very dim via opacity)
-
-    # -- 21. STELLARIUM ANTARAE — BBoL Constellation Colors --
     STLR_GLOW_VITAL = "\033[38;2;255;0;0m"  # BBoL VITAL — Life Spark
     STLR_GLOW_STRUC = "\033[38;2;0;68;255m"  # BBoL STRUC — Structure (brightened from #0000FF)
     STLR_GLOW_COSMI = "\033[38;2;64;64;176m"  # BBoL COSMI — Cosmic (brightened from #191970)
@@ -499,8 +459,6 @@ class C:
     STLR_GLOW_COMBA_A = "\033[38;2;220;20;60m"
     STLR_GLOW_ENTRO_A = "\033[38;2;160;160;160m"
     STLR_GLOW_NOBIL_A = "\033[38;2;255;215;0m"
-
-    # -- 22. SYNTAX HIGHLIGHT (vscDarkPlus — react-syntax-highlighter) --
     SYN_DEFAULT = "\033[38;2;212;212;212m"  # default text + operator + punctuation
     SYN_KEYWORD = "\033[38;2;86;156;214m"  # keyword, tag, boolean, doctype-tag
     SYN_TYPE = "\033[38;2;78;201;176m"  # class-name, namespace
@@ -513,15 +471,19 @@ class C:
     SYN_REGEX = "\033[38;2;209;105;105m"  # regex literals
     SYN_SELECTOR = "\033[38;2;215;186;125m"  # CSS selectors, escape sequences
     SYN_PUNCT_MUTED = "\033[38;2;128;128;128m"  # tag.punctuation, cdata, html.punctuation
-
-    # -- 23. GEOID NET — the facts a lattice cell can carry --
     GEOID_TRAIL_FRESH = "\033[38;2;26;26;255m"  # walked and lingered on, rung MARK
     GEOID_TRAIL_ZONE = "\033[38;2;0;204;0m"  # the walked cell became something lasting
     GEOID_TRAIL_RAISED = "\033[38;2;255;0;204m"  # raised out of no man's land, rung not yet named
     GEOID_PENTAGON_MARK = "\033[38;2;0;136;255m"  # the twelve pentagons: geometry, not a state
     GEOID_ABSENT_ROW = "\033[38;2;47;69;80m"  # cells stand, no measurement was delivered
-
-    # -- 24. ASE WIKI GRAPH — the three codings of the knowledge window --
+    GEOID_SPHERE_SLOT_1 = "\033[38;2;228;103;139m"  # sphere number 1 (56.6 to the picture)
+    GEOID_SPHERE_SLOT_2 = "\033[38;2;125;52;178m"  # sphere number 2 (46.0)
+    GEOID_SPHERE_SLOT_3 = "\033[38;2;60;164;221m"  # sphere number 3 (39.9)
+    GEOID_SPHERE_SLOT_4 = "\033[38;2;215;185;117m"  # sphere number 4 (38.8)
+    GEOID_SPHERE_SLOT_5 = "\033[38;2;201;26;255m"  # sphere number 5 (37.7)
+    GEOID_SPHERE_SLOT_6 = "\033[38;2;26;87;255m"  # sphere number 6 (35.1)
+    GEOID_SPHERE_SLOT_7 = "\033[38;2;255;26;91m"  # sphere number 7 (35.0)
+    GEOID_SPHERE_SLOT_8 = "\033[38;2;215;117;207m"  # the collection: every sphere number above seven (41.8)
     WIKI_TRUTH_AKTEUR = "\033[38;2;99;113;61m"  # the actor — the subject above which nothing stands
     WIKI_TRUTH_AKTEUR_INK = "\033[38;2;240;243;231m"  # ink on the actor mark — 4.72:1
     WIKI_TRUTH_USECASE = "\033[38;2;169;128;96m"  # the use case — which capability carries it

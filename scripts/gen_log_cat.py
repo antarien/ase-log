@@ -88,7 +88,7 @@ def load_all_abbreviations(taxonomy_dir: Path,
 
     # --- Source 1: Taxonomy ---
 
-    # Build name -> abbrev mapping from _index.json (semantic categories)
+    # Build name → abbrev mapping from _index.json (semantic categories)
     index_name_to_abbrev: Dict[str, str] = {}
     index_file = taxonomy_dir / "_index.json"
     if index_file.exists():
@@ -102,7 +102,7 @@ def load_all_abbreviations(taxonomy_dir: Path,
                     index_name_to_abbrev[name] = abbrev
 
     # Load from individual taxonomy files (ALL nested abbreviations)
-    # Also build noun word -> abbreviation mapping for module prefix resolution
+    # Also build noun word → abbreviation mapping for module prefix resolution
     noun_word_to_abbrev: Dict[str, str] = {}
     taxonomy_keys: Set[str] = set()
     for f in taxonomy_dir.glob("*.json"):
@@ -146,8 +146,8 @@ def load_all_abbreviations(taxonomy_dir: Path,
     for noun_word, noun_abbrev in noun_word_to_abbrev.items():
         if noun_word in abbrevs and noun_abbrev in abbrevs and noun_word != noun_abbrev:
             if noun_word in taxonomy_keys:
-                # Taxonomy key keeps own bit; alias abbreviation -> key instead
-                # e.g. BODY is taxonomy key, BODS is abbreviation -> BODS→BODY
+                # Taxonomy key keeps own bit; alias abbreviation → key instead
+                # e.g. BODY is taxonomy key, BODS is abbreviation → BODS→BODY
                 abbrevs.discard(noun_abbrev)
                 name_aliases.append((noun_abbrev, noun_word))
                 alias_redirect[noun_abbrev] = noun_word
@@ -180,7 +180,7 @@ def load_all_abbreviations(taxonomy_dir: Path,
     for prefix in module_prefixes:
         prefix_upper = prefix.upper()
 
-        # Matches an _index.json category name? (e.g., "ephemeris" -> "eph")
+        # Matches an _index.json category name? (e.g., "ephemeris" → "eph")
         if prefix_upper in index_name_to_abbrev:
             name_aliases.append((prefix_upper, index_name_to_abbrev[prefix_upper]))
             continue
@@ -189,7 +189,7 @@ def load_all_abbreviations(taxonomy_dir: Path,
         if prefix_upper in abbrevs:
             continue
 
-        # Matches a taxonomy noun word? (e.g., "erosion" -> "eros", "camera" -> "cam")
+        # Matches a taxonomy noun word? (e.g., "erosion" → "eros", "camera" → "cam")
         if prefix_upper in noun_word_to_abbrev:
             name_aliases.append((prefix_upper, noun_word_to_abbrev[prefix_upper]))
             continue
@@ -268,7 +268,7 @@ def extract_abbrevs_recursive(node: dict, abbrevs: Set[str],
             for noun_word, noun_abbrev in value.items():
                 if len(noun_abbrev) >= 2:
                     abbrevs.add(noun_abbrev.upper())
-                # Map full word -> abbreviation (prefer non-self mappings)
+                # Map full word → abbreviation (prefer non-self mappings)
                 if noun_word_to_abbrev is not None and len(noun_word) >= 2:
                     word_upper = noun_word.upper()
                     abbrev_upper = noun_abbrev.upper()
@@ -639,7 +639,7 @@ def generate_impl(abbrev_bits: Dict[str, int],
         'constexpr InitEntry g_init_table[] = {',
     ])
 
-    # Build hash -> bit mapping with collision detection
+    # Build hash → bit mapping with collision detection
     hash_to_entry: Dict[int, str] = {}
 
     # Categories
@@ -1835,9 +1835,17 @@ def main():
 
     # === Professional Output ===
 
+    # One label column for the whole script: every label of every section below is
+    # registered before the first line.
+    register_labels(["category", "...", "total", "unique-parts", "new-tokens",
+                     "alias", "alias-total", header_path.name, impl_path.name,
+                     err_header_path.name, err_impl_path.name, display_impl_path.name,
+                     "display-words", "source", "syntax",
+                     "taxonomy", "hub-constants", "hub-metrics", "hub-tags",
+                     "module-prefix", "module-alias", "unique-bits", "capacity", "header"])
+
     # Taxonomy
     section_header(f"Taxonomy ({taxonomy_files} files)", 39)
-    register_labels(["category", "...", "total"])
     sorted_tax = sorted(taxonomy_abbrevs)
     for tok in sorted_tax[:5]:
         section_line(CHECK, "category", f"{C.CYAN}{tok}{C.RESET}")
@@ -1850,21 +1858,18 @@ def main():
     # Hub Constants
     if hub_stats:
         section_header(f"Hub Constants ({hub_stats['const_count']} IDs)", 34)
-        register_labels(["unique-parts", "new-tokens"])
         const_new = hub_stats['const_parts'] - taxonomy_abbrevs
         section_line(CHECK, "unique-parts", f"{C.CYAN}{len(hub_stats['const_parts']):,}{C.RESET}")
         section_line(CHECK, "new-tokens", f"{C.GREEN}{len(const_new):,}{C.RESET}")
 
         # Hub Metrics
         section_header(f"Hub Metrics ({hub_stats['metric_count']} IDs)", 110)
-        register_labels(["unique-parts", "new-tokens"])
         metric_new = hub_stats['metric_parts'] - taxonomy_abbrevs - hub_stats['const_parts']
         section_line(CHECK, "unique-parts", f"{C.CYAN}{len(hub_stats['metric_parts']):,}{C.RESET}")
         section_line(CHECK, "new-tokens", f"{C.GREEN}{len(metric_new):,}{C.RESET}")
 
         # Hub Tags
         section_header(f"Hub Tags ({hub_stats['tag_count']} IDs)", 141)
-        register_labels(["unique-parts", "new-tokens"])
         tag_new = (hub_stats['tag_parts'] - taxonomy_abbrevs
                    - hub_stats['const_parts'] - hub_stats['metric_parts'])
         section_line(CHECK, "unique-parts", f"{C.CYAN}{len(hub_stats['tag_parts']):,}{C.RESET}")
@@ -1872,7 +1877,6 @@ def main():
 
     # Module Prefixes
     section_header(f"Module Prefixes ({len(module_prefixes)} dirs)", 214)
-    register_labels(["alias", "...", "alias-total"])
     for name, abbrev in sorted(name_aliases)[:5]:
         section_line(CHECK, "alias", f"{C.MUTED}{name.lower()}{C.RESET} \u2192 {C.CYAN}{abbrev}{C.RESET}")
     if len(name_aliases) > 5:
@@ -1883,7 +1887,6 @@ def main():
 
     # Output
     section_header("Output", 71)
-    register_labels([header_path.name, impl_path.name])
     if header_changed:
         section_line(CROSS, header_path.name, f"{C.YELLOW}CHANGED (triggers rebuild){C.RESET}")
     else:
@@ -1895,8 +1898,6 @@ def main():
 
     # Fault Categories
     section_header(f"Fault Categories (ERR {err_count} / WRN {wrn_count})", 203)
-    register_labels([err_header_path.name, err_impl_path.name, display_impl_path.name,
-                     "display-words", "source", "syntax"])
     if display_changed:
         section_line(CHECK, display_impl_path.name, f"{C.GREEN}CHANGED (1 file recompile){C.RESET}")
     else:
@@ -1922,8 +1923,6 @@ def main():
     capacity = 16384
     pct = (num_categories / capacity) * 100
     section_header(f"Summary ({num_categories:,})", 179)
-    register_labels(["taxonomy", "hub-constants", "hub-metrics", "hub-tags",
-                     "module-prefix", "module-alias", "unique-bits", "capacity", "header"])
     section_line(CHECK, "taxonomy", f"{C.CYAN}{len(taxonomy_abbrevs):,}{C.RESET}")
     if hub_stats:
         section_line(CHECK, "hub-constants", f"{C.CYAN}{len(hub_stats['const_parts']):,}{C.RESET}")

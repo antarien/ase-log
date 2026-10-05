@@ -200,11 +200,18 @@ def run_analysis(args: argparse.Namespace) -> int:
 
     capacity = 16384  # Fixed capacity from header (256 chunks × 64 bits)
 
+    # One label column for the whole script: every label of every section, those shown only
+    # without --quiet and the two that always print, is registered before the first line.
+    register_labels(["category", "...", "total", "part", "unique-parts", "new-tokens",
+                     "alias", "index-alias", "noun-alias", "standalone", "taxonomy-match",
+                     "shared", "shared-total", "BROKEN", "broken-total", "status",
+                     "taxonomy", "hub-constants", "hub-metrics", "hub-tags",
+                     "module-prefix", "unique-bits", "broken-aliases", "capacity"])
+
     if not quiet:
         # === Taxonomy Section ===
         if show_taxonomy:
             section_header(f"Taxonomy ({taxonomy_files} files)", 39)
-            register_labels(["category", "...", "total"])
             sorted_tax = sorted(taxonomy_tokens)
             display_count = min(5, len(sorted_tax))
             for tok in sorted_tax[:display_count]:
@@ -218,7 +225,6 @@ def run_analysis(args: argparse.Namespace) -> int:
         # === Hub Constants Section ===
         if show_hub:
             section_header(f"Hub Constants ({hub_const_ids} IDs)", 34)
-            register_labels(["part", "...", "unique-parts", "new-tokens"])
             part_counts: Dict[str, int] = {}
             with open(hub_data_dir / "hub_constants.json", 'r') as f:
                 data = json.load(f)
@@ -238,7 +244,6 @@ def run_analysis(args: argparse.Namespace) -> int:
 
         if show_hub:
             section_header(f"Hub Metrics ({hub_metric_ids} IDs)", 110)
-            register_labels(["part", "...", "unique-parts", "new-tokens"])
             part_counts = {}
             with open(hub_data_dir / "hub_metrics.json", 'r') as f:
                 data = json.load(f)
@@ -258,7 +263,6 @@ def run_analysis(args: argparse.Namespace) -> int:
 
         if show_hub:
             section_header(f"Hub Tags ({hub_tag_ids} IDs)", 141)
-            register_labels(["part", "...", "unique-parts", "new-tokens"])
             part_counts = {}
             with open(hub_data_dir / "hub_tags.json", 'r') as f:
                 data = json.load(f)
@@ -294,7 +298,6 @@ def run_analysis(args: argparse.Namespace) -> int:
             standalone_count = 0
             taxonomy_match_count = 0
             section_header(f"Module Prefixes ({len(module_prefixes)} dirs)", 214)
-            register_labels(["alias", "...", "index-alias", "noun-alias", "standalone", "taxonomy-match"])
             aliases = []
             for prefix in sorted(module_prefixes):
                 if prefix in index_name_to_abbrev:
@@ -321,7 +324,6 @@ def run_analysis(args: argparse.Namespace) -> int:
         # === Overlaps Section ===
         if show_overlap:
             section_header("Overlaps", 97)
-            register_labels(["shared", "...", "shared-total"])
             sources: Dict[str, list] = {}
             for tok in all_tokens:
                 srcs = []
@@ -365,7 +367,6 @@ def run_analysis(args: argparse.Namespace) -> int:
     has_broken = len(broken_aliases) > 0
     if not quiet or has_broken:
         section_header(f"Alias Integrity ({len(all_alias_pairs)} pairs)", 242)
-        register_labels(["BROKEN", "...", "broken-total", "status"])
         if has_broken:
             # DIE FUNDSTELLEN LIEFERT DAS TOR \u2014 Alias, Ziel und BEIDE Bits, damit die Adresse
             # vollstaendig ist. Die AUSSAGE steht darunter und kommt aus dem Bestand.
@@ -393,8 +394,6 @@ def run_analysis(args: argparse.Namespace) -> int:
 
     # === Summary Section (always shown) ===
     section_header(f"Summary ({total_unique:,})", 179)
-    register_labels(["taxonomy", "hub-constants", "hub-metrics", "hub-tags",
-                      "module-prefix", "unique-bits", "broken-aliases", "capacity"])
     section_line(CHECK, "taxonomy", f"{C.CYAN}{len(taxonomy_tokens):,}{C.RESET}")
     section_line(CHECK, "hub-constants", f"{C.CYAN}{len(hub_const_parts):,}{C.RESET}")
     section_line(CHECK, "hub-metrics", f"{C.CYAN}{len(hub_metric_parts):,}{C.RESET}")
