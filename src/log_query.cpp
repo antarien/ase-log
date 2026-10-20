@@ -7,30 +7,24 @@
  *              in LogEntry-Datensaetze, mit fortlaufender Nummer. Das ist die ABFRAGE-Seite des
  *              Logs; die Aufbau-Seite (Senken, Logger, Formatierer) steht in log_sys.cpp.
  *
- * WARUM ES DIESE DATEI GIBT (2026-08-22)
+ * WARUM ES DIESE DATEI GIBT
  *
- *   log_sys.cpp hatte den God-System-Deckel gerissen (805 Zeilen), und die Regel dazu sagt
- *   woertlich, was daraus folgt: "split FIRST, fix findings SECOND" — die vorgeschriebenen
- *   Reparaturen FUEGEN Zeilen hinzu, also blockiert eine uebervolle Datei beide Fronten
- *   gleichzeitig. Und: "NEVER SHORTEN DOCUMENTATION TO GET UNDER THE NUMBER". Ich hatte genau
- *   das zweimal getan, bevor das Tor mich darauf gestossen hat.
+ *   "Wie baue ich das Logging auf" und "welche Zeilen hat es geschrieben" sind zwei Fragen. Die
+ *   erste beantwortet log_sys.cpp, die zweite diese Datei.
  *
- *   Die Naht wurde gemessen, nicht geschaetzt: parse_ring_line ruft NICHTS aus dem Rest der
- *   Datei — kein g_*, kein LogSystem::, kein spdlog. recent_logs kreuzt die Naht an genau drei
- *   Stellen: dem Ringpuffer (jetzt ueber internal::log_resources()), dem Zaehler g_log_counter_
- *   und dem eigenen Helfer. Der Zaehler ist ein privates statisches Member von LogSystem —
- *   erreichbar bleibt er, weil recent_logs eine METHODE dieser Klasse ist; eine
- *   Methodendefinition darf in jeder Uebersetzungseinheit stehen.
- *
- *   Die Trennung ist die, die der Deckel meldet, nicht die, die die Zeilenzahl verlangt:
- *   "wie baue ich das Logging auf" und "welche Zeilen hat es geschrieben" sind zwei Fragen.
+ *   Die Naht ist gemessen, nicht geschaetzt: parse_ring_line ruft NICHTS aus dem Rest des
+ *   Moduls — kein Logger, kein spdlog. recent_logs kreuzt die Naht an genau drei Stellen: dem
+ *   Ringpuffer und dem Zeilenzaehler, beide ueber internal::log_resources(), und dem eigenen
+ *   Helfer. recent_logs ist eine freie Funktion in log_query.hpp; das System, das die Senken aufbaut,
+ *   haelt keinen Zustand, den sie lesen muesste.
  *
  * @module      ase-log
  * @layer       1 (Core)
  * @category    ecs/module
+ * @usecase     usecase:100363 - read recent log lines
  * @created     2026-08-22
- * @modified    2026-08-22
- * @version     1.0.0
+ * @modified    2026-10-11
+ * @version     1.2.0
  *
  * CORE INFRASTRUCTURE IMPLEMENTATION COMPLIANCE
  *
@@ -48,6 +42,7 @@
  * [ ] Performance-critical code profiled and optimized
  */
 
+#include <ase/log/log_query.hpp>
 #include <ase/log/log.hpp>
 #include <ase/log/internal/log_resource_manager.hpp>
 #include <ase/containers/vector.hpp>
@@ -163,13 +158,13 @@ LogEntry parse_ring_line(const std::string& line, uint32_t seq) {
 
 }  // anonymous namespace
 
-ase::containers::Vector<LogEntry> LogSystem::recent_logs(uint32_t since_seq) {
+ase::containers::Vector<LogEntry> recent_logs(uint32_t since_seq) {
     auto* http_ring = internal::log_resources().get_http_ring();
     if (http_ring == nullptr) return {};
     auto all = http_ring->last_formatted();
     if (all.empty()) return {};
 
-    uint32_t seq = g_log_counter_.load();
+    uint32_t seq = internal::log_resources().log_counter();
     uint32_t total = static_cast<uint32_t>(all.size());
 
     // Determine which lines to return

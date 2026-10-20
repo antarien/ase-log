@@ -13,26 +13,26 @@
  * @module      ase-log
  * @layer       1 (Core)
  * @category    process/computation
+ * @usecase     usecase:100361 - open the log sinks
  * @created     2026-08-31
- * @modified    2026-08-31
- * @version     1.0.0
+ * @modified    2026-10-11
+ * @version     1.0.1
  *
  * WARUM DIESER ZWECK EINE EIGENE DATEI IST — GEMESSEN, NICHT GESCHAETZT
  *
- * Diese Deklarationen standen bis 2026-08-31 in `log.hpp`, und dort trafen sie auf einen
- * Verbraucherkreis, den sie nichts angehen: `log.hpp` wird von 2224 Uebersetzungseinheiten
- * eingebunden. Den Lebenszyklus dagegen ruft, wer ein Programm STARTET oder BEENDET —
- * `log::init` aus 14 Dateien, `log::shutdown` aus 10, die Capture-Klammer aus 3.
+ * `log.hpp` binden fast alle Uebersetzungseinheiten jedes Tiers ein. Den Lebenszyklus dagegen
+ * ruft, wer ein Programm STARTET oder BEENDET — `log::init` aus 14 Dateien, `log::shutdown` aus
+ * 10, die Capture-Klammer aus 3.
  *
- * DER PREIS WAR DIE KOPPLUNG, NICHT DIE GROESSE: eine Aenderung an der Capture-Klammer
- * uebersetzte 2224 Einheiten neu, obwohl drei sie rufen. Der Schnitt folgt dem EINSATZZWECK —
- * wer eine Zeile SCHREIBT, bindet log.hpp ein; wer einen Logger AUFSETZT, diese Datei.
+ * DER PREIS IST DIE KOPPLUNG, NICHT DIE GROESSE: stuenden diese Deklarationen in log.hpp,
+ * uebersetzte eine Aenderung an der Capture-Klammer jede dieser Einheiten neu, obwohl drei sie
+ * rufen. Der Schnitt folgt dem EINSATZZWECK — wer eine Zeile SCHREIBT, bindet log.hpp ein; wer
+ * einen Logger AUFSETZT, diese Datei.
  *
  * KEINE INLINE-DEFINITION, UND DAS IST DER GRUND, WARUM DIESE DATEI DIE BIBLIOTHEK NICHT NENNT.
- * `init` und `shutdown` waren inline und griffen dafuer auf `LogSystem::logger()` zu — `init`
- * nannte dabei die farbige Konsolensenke, den Logger-Typ und die Stufenkonstante der Bibliothek
- * DIREKT, in einem Header, den der ganze Baum sieht. Beide sind jetzt Deklarationen; ihre Rumpfe
- * stehen unveraendert bei ihren Geschwistern in log_standalone.cpp. Damit traegt weder diese
+ * Ein inline `init` muesste die farbige Konsolensenke, den Logger-Typ und die Stufenkonstante der
+ * Bibliothek DIREKT nennen, in einem Header, den der ganze Baum sieht. Beide sind Deklarationen;
+ * ihre Rumpfe stehen bei ihren Geschwistern in log_standalone.cpp. Damit traegt weder diese
  * Datei noch ihr Verbraucherkreis einen Fremdtyp, den er nicht braucht.
  *
  * EIN HINWEIS FUER JEDEN, DER HIER SPAETER SCHREIBT: die Sperre gegen den direkten Gebrauch der
@@ -140,8 +140,8 @@ void init_tui_standalone(const std::string& name, const std::string& label, cons
 /**
  * @brief Install the capture-phase logger.
  *
- * Must be the FIRST call at the top of Kernel::build — it puts g_logger_
- * into a well-defined state (a single ringbuffer sink, no console) so every
+ * Must be the FIRST call at the top of Kernel::build — it puts the server
+ * logger (internal::logger_slot) into a well-defined state (a single ringbuffer sink, no console) so every
  * log::* call made afterwards by kernel init, KernelEnvLdrSystem,
  * KernelCmdSystem, dlopen discovery and any pre-LogSystem::on_start code
  * is captured instead of silently dropped by the null-logger gate.
@@ -261,7 +261,7 @@ void parse_cli_filter_from_argv(int argc, char* argv[]);
  * HTTP-ring, counting} — the console sink is deliberately withheld so
  * log lines from every system's on_start cannot interleave into the
  * boot progress table on stdout. This call:
- *   1. attaches the previously parked console sink to g_logger_
+ *   1. attaches the previously parked console sink to the server logger
  *   2. replays the capture-ring into every attached sink (console + file
  *      + HTTP-ring + counting) so early log lines appear on BOTH stdout
  *      and in logs/{server}-{port}.log with the correct [LABEL] format

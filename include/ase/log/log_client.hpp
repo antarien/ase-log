@@ -7,7 +7,7 @@
  * @design      DSGN_021
  * @brief       Weiterleitung von Browser-Konsolenzeilen in das Serverlog
  * @description Die client_*-Familie schreibt in den ZWEITEN Logger des Moduls
- *              (LogSystem::client_logger) — ohne [SERVER]-Praefix, weil die Zeile nicht vom
+ *              (internal::client_logger_slot) — ohne [SERVER]-Praefix, weil die Zeile nicht vom
  *              Server stammt, sondern ueber RTC aus einem Browser hereinkommt. Drei Formen je
  *              Stufe: ungefiltert, gefiltert ueber ein Client-Bit, und formatiert mit
  *              Aufrufort-Erfassung.
@@ -15,15 +15,16 @@
  * @module      ase-log
  * @layer       1 (Core)
  * @category    process/computation
+ * @usecase     usecase:100362 - write a log line
  * @created     2026-08-31
- * @modified    2026-08-31
- * @version     1.0.0
+ * @modified    2026-10-19
+ * @version     1.2.0
  *
- * WARUM DIESER ZWECK EINE EIGENE DATEI IST — GEMESSEN, NICHT GESCHAETZT
+ * WARUM DIESER ZWECK EINE EIGENE DATEI IST
  *
- * Diese Familie stand bis 2026-08-31 in `log.hpp`, den 2224 Uebersetzungseinheiten einbinden und
- * 2686 Dateien fuer den gewoehnlichen Aufruf brauchen. Sie selbst hat einen anderen Zweck als
- * jede dieser Dateien: sie bedient einen zweiten Logger fuer fremde Zeilen.
+ * `log.hpp` binden fast alle Uebersetzungseinheiten jedes Tiers fuer den gewoehnlichen Aufruf
+ * ein. Diese Familie hat einen anderen Zweck als jede dieser Dateien: sie bedient einen zweiten
+ * Logger fuer fremde Zeilen.
  *
  * ZUR AUFRUFERZAHL, und sie ist der Grund fuer die Trennung, NICHT fuer eine Loeschung:
  * GEMESSEN 2026-08-31, unabhaengig nachgemessen zu einem gleichlautenden Befund vom 2026-08-22:
@@ -70,9 +71,9 @@
  * [ ] API stable (changes require version bump)
  */
 
-// Traegt LogSystem::client_logger, die log_fmtN-Traeger und die Filter-Einstiege. Die Richtung
-// ist Absicht: DIESE Datei bindet log.hpp ein, nie umgekehrt — ein Durchreicher dort haette den
-// ganzen Baum wieder an diese Familie gekoppelt und den Schnitt aufgehoben.
+// Traegt internal::client_logger_slot, die log_fmtN-Traeger und die Filter-Einstiege. Die
+// Richtung ist Absicht: DIESE Datei bindet log.hpp ein, nie umgekehrt — ein Durchreicher dort
+// haette den ganzen Baum wieder an diese Familie gekoppelt und den Schnitt aufgehoben.
 #include <ase/log/log.hpp>
 
 #include <cstdint>
@@ -83,26 +84,24 @@
 
 namespace ase::log {
 
-// ============================================================================
-// Client Logging Functions (uses client_logger without [SERVER] prefix)
+// CLIENT LOGGING FUNCTIONS (uses the client logger without [SERVER] prefix)
 // For forwarding browser console logs via RTC
-// ============================================================================
 
 // Unfiltered client logging (backward compatible, no client filter applied)
 inline void client_info(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->info("{}", msg);
+    if (internal::client_logger_slot()) internal::client_logger_slot()->info("{}", msg);
 }
 
 inline void client_warn(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->warn("{}", msg);
+    if (internal::client_logger_slot()) internal::client_logger_slot()->warn("{}", msg);
 }
 
 inline void client_error(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->error("{}", msg);
+    if (internal::client_logger_slot()) internal::client_logger_slot()->error("{}", msg);
 }
 
 inline void client_debug(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->debug("{}", msg);
+    if (internal::client_logger_slot()) internal::client_logger_slot()->debug("{}", msg);
 }
 
 // Filtered client logging with client_bit (use 1ULL << client_id)
@@ -110,25 +109,25 @@ inline void client_debug(const std::string& msg) {
 inline void client_info(uint64_t client_bit, const std::string& msg,
                         const std::source_location& loc = std::source_location::current()) {
     if (!should_log_client(level::info, client_bit, loc)) return;
-    if (LogSystem::client_logger()) LogSystem::client_logger()->info("{}", msg);
+    if (internal::client_logger_slot()) internal::client_logger_slot()->info("{}", msg);
 }
 
 inline void client_warn(uint64_t client_bit, const std::string& msg,
                         const std::source_location& loc = std::source_location::current()) {
     if (!should_log_client(level::warn, client_bit, loc)) return;
-    if (LogSystem::client_logger()) LogSystem::client_logger()->warn("{}", msg);
+    if (internal::client_logger_slot()) internal::client_logger_slot()->warn("{}", msg);
 }
 
 inline void client_error(uint64_t client_bit, const std::string& msg,
                          const std::source_location& loc = std::source_location::current()) {
     if (!should_log_client(level::error, client_bit, loc)) return;
-    if (LogSystem::client_logger()) LogSystem::client_logger()->error("{}", msg);
+    if (internal::client_logger_slot()) internal::client_logger_slot()->error("{}", msg);
 }
 
 inline void client_debug(uint64_t client_bit, const std::string& msg,
                          const std::source_location& loc = std::source_location::current()) {
     if (!should_log_client(level::debug, client_bit, loc)) return;
-    if (LogSystem::client_logger()) LogSystem::client_logger()->debug("{}", msg);
+    if (internal::client_logger_slot()) internal::client_logger_slot()->debug("{}", msg);
 }
 
 // Filtered client logging with fmt-style formatting
@@ -144,18 +143,18 @@ inline void client_debug(uint64_t client_bit, const std::string& msg,
 
 template<typename T0>
 inline void client_info(uint64_t client_bit, log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_client_loc(filter::LVL_INF, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->info(lf.fmt, std::forward<T0>(a0));
+    if (!filter::should_log_client_loc(level::info, lf.file, lf.func, lf.loc_hash, client_bit)) return;
+    if (internal::client_logger_slot())
+        internal::client_logger_slot()->info(lf.fmt, std::forward<T0>(a0));
 }
 
 template<typename T0, typename T1>
 inline void client_info(uint64_t client_bit,
                         log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
                         T0&& a0, T1&& a1) {
-    if (!filter::should_log_client_loc(filter::LVL_INF, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
+    if (!filter::should_log_client_loc(level::info, lf.file, lf.func, lf.loc_hash, client_bit)) return;
+    if (internal::client_logger_slot())
+        internal::client_logger_slot()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
 }
 
 template<typename T0, typename T1, typename T2>
@@ -163,26 +162,26 @@ inline void client_info(uint64_t client_bit,
                         log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                                  std::type_identity_t<T2>> lf,
                         T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_client_loc(filter::LVL_INF, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                         std::forward<T2>(a2));
+    if (!filter::should_log_client_loc(level::info, lf.file, lf.func, lf.loc_hash, client_bit)) return;
+    if (internal::client_logger_slot())
+        internal::client_logger_slot()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                             std::forward<T2>(a2));
 }
 
 template<typename T0>
 inline void client_warn(uint64_t client_bit, log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_client_loc(filter::LVL_WRN, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->warn(lf.fmt, std::forward<T0>(a0));
+    if (!filter::should_log_client_loc(level::warn, lf.file, lf.func, lf.loc_hash, client_bit)) return;
+    if (internal::client_logger_slot())
+        internal::client_logger_slot()->warn(lf.fmt, std::forward<T0>(a0));
 }
 
 template<typename T0, typename T1>
 inline void client_warn(uint64_t client_bit,
                         log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
                         T0&& a0, T1&& a1) {
-    if (!filter::should_log_client_loc(filter::LVL_WRN, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
+    if (!filter::should_log_client_loc(level::warn, lf.file, lf.func, lf.loc_hash, client_bit)) return;
+    if (internal::client_logger_slot())
+        internal::client_logger_slot()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
 }
 
 template<typename T0, typename T1, typename T2>
@@ -190,26 +189,26 @@ inline void client_warn(uint64_t client_bit,
                         log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                                  std::type_identity_t<T2>> lf,
                         T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_client_loc(filter::LVL_WRN, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                         std::forward<T2>(a2));
+    if (!filter::should_log_client_loc(level::warn, lf.file, lf.func, lf.loc_hash, client_bit)) return;
+    if (internal::client_logger_slot())
+        internal::client_logger_slot()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                             std::forward<T2>(a2));
 }
 
 template<typename T0>
 inline void client_error(uint64_t client_bit, log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_client_loc(filter::LVL_ERR, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->error(lf.fmt, std::forward<T0>(a0));
+    if (!filter::should_log_client_loc(level::error, lf.file, lf.func, lf.loc_hash, client_bit)) return;
+    if (internal::client_logger_slot())
+        internal::client_logger_slot()->error(lf.fmt, std::forward<T0>(a0));
 }
 
 template<typename T0, typename T1>
 inline void client_error(uint64_t client_bit,
                          log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
                          T0&& a0, T1&& a1) {
-    if (!filter::should_log_client_loc(filter::LVL_ERR, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
+    if (!filter::should_log_client_loc(level::error, lf.file, lf.func, lf.loc_hash, client_bit)) return;
+    if (internal::client_logger_slot())
+        internal::client_logger_slot()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
 }
 
 template<typename T0, typename T1, typename T2>
@@ -217,26 +216,26 @@ inline void client_error(uint64_t client_bit,
                          log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                                   std::type_identity_t<T2>> lf,
                          T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_client_loc(filter::LVL_ERR, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                          std::forward<T2>(a2));
+    if (!filter::should_log_client_loc(level::error, lf.file, lf.func, lf.loc_hash, client_bit)) return;
+    if (internal::client_logger_slot())
+        internal::client_logger_slot()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                              std::forward<T2>(a2));
 }
 
 template<typename T0>
 inline void client_debug(uint64_t client_bit, log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_client_loc(filter::LVL_DBG, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->debug(lf.fmt, std::forward<T0>(a0));
+    if (!filter::should_log_client_loc(level::debug, lf.file, lf.func, lf.loc_hash, client_bit)) return;
+    if (internal::client_logger_slot())
+        internal::client_logger_slot()->debug(lf.fmt, std::forward<T0>(a0));
 }
 
 template<typename T0, typename T1>
 inline void client_debug(uint64_t client_bit,
                          log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
                          T0&& a0, T1&& a1) {
-    if (!filter::should_log_client_loc(filter::LVL_DBG, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
+    if (!filter::should_log_client_loc(level::debug, lf.file, lf.func, lf.loc_hash, client_bit)) return;
+    if (internal::client_logger_slot())
+        internal::client_logger_slot()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
 }
 
 template<typename T0, typename T1, typename T2>
@@ -244,23 +243,17 @@ inline void client_debug(uint64_t client_bit,
                          log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                                   std::type_identity_t<T2>> lf,
                          T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_client_loc(filter::LVL_DBG, lf.file, lf.func, client_bit)) return;
-    if (LogSystem::client_logger())
-        LogSystem::client_logger()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                          std::forward<T2>(a2));
+    if (!filter::should_log_client_loc(level::debug, lf.file, lf.func, lf.loc_hash, client_bit)) return;
+    if (internal::client_logger_slot())
+        internal::client_logger_slot()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                              std::forward<T2>(a2));
 }
 
-// ============================================================================
-// RTC Server Logging Functions (uses client_logger with [SERVER] [RTC] prefix)
+// RTC SERVER LOGGING FUNCTIONS (uses the client logger with [SERVER] [RTC] prefix)
 // For RTC-related server logs: [ASE] [SERVER] [RTC] message
-// ============================================================================
-//
-// HIERHER GEZOGEN AM 2026-08-31, aus log.hpp — und sie stand dort zwei Zeilen unter der
-// client_*-Familie, die am selben Tag denselben Weg genommen hat. Beim ersten Schnitt
-// uebersehen, weil er nach dem NAMEN ging und nicht nach dem ZIEL.
 //
 // DAS ZIEL IST DER SCHNITT: beide Familien schreiben in den ZWEITEN Logger
-// (LogSystem::client_logger). Sie unterscheiden sich in der RICHTUNG, nicht im Kanal —
+// (internal::client_logger_slot). Sie unterscheiden sich in der RICHTUNG, nicht im Kanal —
 // client_* traegt Zeilen, die aus einem Browser HEREINKOMMEN, rtc_* traegt Zeilen, die der
 // Server ueber die RTC-Strecke SELBST erzeugt. Deshalb das [SERVER] [RTC]-Praefix hier und
 // gar keines dort.
@@ -268,34 +261,32 @@ inline void client_debug(uint64_t client_bit,
 // GEMESSEN, mit greifender Positivkontrolle: NULL Aufrufer im ganzen Baum (dieselbe Sondenform
 // findet `log::debug` und `client_info` je an mehreren Stellen). Eine vorbereitete
 // Schnittstelle ist kein toter Code — der zweite Logger existiert und wird aufgesetzt. Aus
-// einem Header, den 2224 Uebersetzungseinheiten fuer den GEWOEHNLICHEN Aufruf einbinden,
+// einem Header, den fast jede Uebersetzungseinheit fuer den GEWOEHNLICHEN Aufruf einbindet,
 // gehoert sie dennoch heraus: sonst zahlt der ganze Baum bei JEDER Uebersetzung fuer eine
-// Familie, die niemand ruft — und schleppt dabei `spdlog::format_string_t` in seinem Vertrag
-// mit, zwoelfmal.
+// Familie, die niemand ruft.
 
 inline void rtc_info(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->info("[SERVER] [RTC] {}", msg);
+    if (internal::client_logger_slot()) internal::client_logger_slot()->info("[SERVER] [RTC] {}", msg);
 }
 
 inline void rtc_warn(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->warn("[SERVER] [RTC] {}", msg);
+    if (internal::client_logger_slot()) internal::client_logger_slot()->warn("[SERVER] [RTC] {}", msg);
 }
 
 inline void rtc_error(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->error("[SERVER] [RTC] {}", msg);
+    if (internal::client_logger_slot()) internal::client_logger_slot()->error("[SERVER] [RTC] {}", msg);
 }
 
 inline void rtc_debug(const std::string& msg) {
-    if (LogSystem::client_logger()) LogSystem::client_logger()->debug("[SERVER] [RTC] {}", msg);
+    if (internal::client_logger_slot()) internal::client_logger_slot()->debug("[SERVER] [RTC] {}", msg);
 }
 
 // DIE FORMATIERENDEN FASSUNGEN NEHMEN DEN log_fmtN-TRAEGER, wie die client_*-Familie darueber.
 //
-// In log.hpp nannten sie `spdlog::format_string_t` DIREKT, und der Kommentar dort begruendete es
-// damit, dass ein Traeger hier nichts zu erfassen habe: rtc_* filtert nicht nach Aufrufort. Das
-// stimmt — und traegt die Entscheidung trotzdem nicht. In log.hpp fiel die direkte Nennung nicht
-// auf, weil jene Datei in der namentlichen Ausnahme von SPDLOG_DIRECT_FORBIDDEN steht; DIESE
-// nicht. Der Bibliothekstyp im Vertrag ist hier zwoelfmal ein Befund.
+// rtc_* filtert nicht nach Aufrufort, ein Traeger haette hier also nichts zu erfassen — und
+// traegt die Entscheidung trotzdem: diese Datei steht NICHT in der namentlichen Ausnahme von
+// SPDLOG_DIRECT_FORBIDDEN, und `spdlog::format_string_t` im Vertrag waere hier zwoelfmal ein
+// Befund.
 //
 // `log_fmtN` KAPSELT genau diesen Typ (`spdlog::format_string_t<T0..Tn>` als Feld `fmt`) und
 // wird in log.hpp definiert, wo er stehen darf. Die Uebersetzungspruefung der Formatzeichenkette
@@ -308,18 +299,18 @@ inline void rtc_debug(const std::string& msg) {
 
 template<typename T0>
 inline void rtc_info(log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (LogSystem::client_logger()) {
+    if (internal::client_logger_slot()) {
         auto msg = fmt::format(lf.fmt, std::forward<T0>(a0));
-        LogSystem::client_logger()->info("[SERVER] [RTC] {}", msg);
+        internal::client_logger_slot()->info("[SERVER] [RTC] {}", msg);
     }
 }
 
 template<typename T0, typename T1>
 inline void rtc_info(log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf, T0&& a0,
                      T1&& a1) {
-    if (LogSystem::client_logger()) {
+    if (internal::client_logger_slot()) {
         auto msg = fmt::format(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
-        LogSystem::client_logger()->info("[SERVER] [RTC] {}", msg);
+        internal::client_logger_slot()->info("[SERVER] [RTC] {}", msg);
     }
 }
 
@@ -327,27 +318,27 @@ template<typename T0, typename T1, typename T2>
 inline void rtc_info(log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                               std::type_identity_t<T2>> lf,
                      T0&& a0, T1&& a1, T2&& a2) {
-    if (LogSystem::client_logger()) {
+    if (internal::client_logger_slot()) {
         auto msg = fmt::format(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
                                std::forward<T2>(a2));
-        LogSystem::client_logger()->info("[SERVER] [RTC] {}", msg);
+        internal::client_logger_slot()->info("[SERVER] [RTC] {}", msg);
     }
 }
 
 template<typename T0>
 inline void rtc_warn(log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (LogSystem::client_logger()) {
+    if (internal::client_logger_slot()) {
         auto msg = fmt::format(lf.fmt, std::forward<T0>(a0));
-        LogSystem::client_logger()->warn("[SERVER] [RTC] {}", msg);
+        internal::client_logger_slot()->warn("[SERVER] [RTC] {}", msg);
     }
 }
 
 template<typename T0, typename T1>
 inline void rtc_warn(log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf, T0&& a0,
                      T1&& a1) {
-    if (LogSystem::client_logger()) {
+    if (internal::client_logger_slot()) {
         auto msg = fmt::format(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
-        LogSystem::client_logger()->warn("[SERVER] [RTC] {}", msg);
+        internal::client_logger_slot()->warn("[SERVER] [RTC] {}", msg);
     }
 }
 
@@ -355,27 +346,27 @@ template<typename T0, typename T1, typename T2>
 inline void rtc_warn(log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                               std::type_identity_t<T2>> lf,
                      T0&& a0, T1&& a1, T2&& a2) {
-    if (LogSystem::client_logger()) {
+    if (internal::client_logger_slot()) {
         auto msg = fmt::format(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
                                std::forward<T2>(a2));
-        LogSystem::client_logger()->warn("[SERVER] [RTC] {}", msg);
+        internal::client_logger_slot()->warn("[SERVER] [RTC] {}", msg);
     }
 }
 
 template<typename T0>
 inline void rtc_error(log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (LogSystem::client_logger()) {
+    if (internal::client_logger_slot()) {
         auto msg = fmt::format(lf.fmt, std::forward<T0>(a0));
-        LogSystem::client_logger()->error("[SERVER] [RTC] {}", msg);
+        internal::client_logger_slot()->error("[SERVER] [RTC] {}", msg);
     }
 }
 
 template<typename T0, typename T1>
 inline void rtc_error(log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf, T0&& a0,
                       T1&& a1) {
-    if (LogSystem::client_logger()) {
+    if (internal::client_logger_slot()) {
         auto msg = fmt::format(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
-        LogSystem::client_logger()->error("[SERVER] [RTC] {}", msg);
+        internal::client_logger_slot()->error("[SERVER] [RTC] {}", msg);
     }
 }
 
@@ -383,27 +374,27 @@ template<typename T0, typename T1, typename T2>
 inline void rtc_error(log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                                std::type_identity_t<T2>> lf,
                       T0&& a0, T1&& a1, T2&& a2) {
-    if (LogSystem::client_logger()) {
+    if (internal::client_logger_slot()) {
         auto msg = fmt::format(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
                                std::forward<T2>(a2));
-        LogSystem::client_logger()->error("[SERVER] [RTC] {}", msg);
+        internal::client_logger_slot()->error("[SERVER] [RTC] {}", msg);
     }
 }
 
 template<typename T0>
 inline void rtc_debug(log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (LogSystem::client_logger()) {
+    if (internal::client_logger_slot()) {
         auto msg = fmt::format(lf.fmt, std::forward<T0>(a0));
-        LogSystem::client_logger()->debug("[SERVER] [RTC] {}", msg);
+        internal::client_logger_slot()->debug("[SERVER] [RTC] {}", msg);
     }
 }
 
 template<typename T0, typename T1>
 inline void rtc_debug(log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf, T0&& a0,
                       T1&& a1) {
-    if (LogSystem::client_logger()) {
+    if (internal::client_logger_slot()) {
         auto msg = fmt::format(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
-        LogSystem::client_logger()->debug("[SERVER] [RTC] {}", msg);
+        internal::client_logger_slot()->debug("[SERVER] [RTC] {}", msg);
     }
 }
 
@@ -411,10 +402,10 @@ template<typename T0, typename T1, typename T2>
 inline void rtc_debug(log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                                std::type_identity_t<T2>> lf,
                       T0&& a0, T1&& a1, T2&& a2) {
-    if (LogSystem::client_logger()) {
+    if (internal::client_logger_slot()) {
         auto msg = fmt::format(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
                                std::forward<T2>(a2));
-        LogSystem::client_logger()->debug("[SERVER] [RTC] {}", msg);
+        internal::client_logger_slot()->debug("[SERVER] [RTC] {}", msg);
     }
 }
 

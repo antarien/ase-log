@@ -17,13 +17,16 @@
  *              layer (log_sys.cpp), so every channel carries identical bytes.
  *              Nothing here splits or augments a record: a categorized message
  *              carries its short text and its hint lines from the format layer.
+ *              Where an escape sequence ends comes from log_ansi.hpp, the walk the
+ *              tier console takes over the same bytes.
  *
  * @module      ase-log
  * @layer       1 (Core)
  * @category    ecs/module
+ * @usecase     usecase:100362 - write a log line
  * @created     2026-08-24
- * @modified    2026-08-24
- * @version     1.2.0
+ * @modified    2026-10-18
+ * @version     1.3.0
  *
  * CORE INFRASTRUCTURE IMPLEMENTATION COMPLIANCE
  *
@@ -42,6 +45,7 @@
  */
 
 #include <ase/log/log_display.hpp>
+#include <ase/log/log_ansi.hpp>
 
 #include <cstddef>
 
@@ -83,20 +87,6 @@ bool is_token_char(char c) {
            c == ':' || c == '~';
 }
 
-// Length of the ANSI escape sequence starting at pos, or 0 when there is none. A CSI
-// sequence ends at the first byte in 0x40..0x7E; anything unterminated is treated as a
-// plain byte so a truncated line can never make the walker run past the end.
-std::size_t ansi_len(const std::string& s, std::size_t pos) {
-    if (s[pos] != '\x1b' || pos + 1 >= s.size() || s[pos + 1] != '[') {
-        return 0;
-    }
-    std::size_t i = pos + 2;
-    while (i < s.size() && !(s[i] >= '@' && s[i] <= '~')) {
-        ++i;
-    }
-    return (i < s.size()) ? (i - pos + 1) : 0;
-}
-
 // The composed escape per semantic role, built ONCE from the generated getters on first use.
 const std::string& col_string() {
     static const std::string v = std::string("\x1b[") + detail::display_sgr_string() + "m";
@@ -135,7 +125,7 @@ std::size_t message_start(const std::string& s) {
         // "\x1b[", because '[' itself falls inside the CSI terminator range 0x40..0x7E -
         // starting on it ends the sequence immediately and leaves the parameters behind as
         // if they were text.
-        const std::size_t esc = ansi_len(s, i);
+        const std::size_t esc = ansi_seq_len(s, i);
         if (esc > 0) {
             i += esc;
             continue;
@@ -215,7 +205,7 @@ std::string shorten_display_line(const std::string& line) {
     while (i < line.size()) {
         // Step over colour sequences untouched: they carry no words and must survive
         // byte-exact.
-        const std::size_t esc = ansi_len(line, i);
+        const std::size_t esc = ansi_seq_len(line, i);
         if (esc > 0) {
             out.append(line, i, esc);
             i += esc;
@@ -244,10 +234,10 @@ std::string shorten_display_line(const std::string& line) {
                 ++j;
             }
             std::size_t k = j;
-            std::size_t esc_after = ansi_len(line, k);
+            std::size_t esc_after = (k < line.size()) ? ansi_seq_len(line, k) : 0;
             while (k < line.size() && esc_after > 0) {
                 k += esc_after;
-                esc_after = (k < line.size()) ? ansi_len(line, k) : 0;
+                esc_after = (k < line.size()) ? ansi_seq_len(line, k) : 0;
             }
             if (j - i >= 2 && k < line.size() && line[k] == ':') {
                 out.append(line, i, k - i);
@@ -314,7 +304,7 @@ std::string colorize_log_line(const std::string& line) {
 
         // A pre-existing colour sequence is copied untouched. Same rule as in message_start:
         // the scan starts after "\x1b[", never on the '[' itself.
-        const std::size_t esc = ansi_len(line, i);
+        const std::size_t esc = ansi_seq_len(line, i);
         if (esc > 0) {
             out.append(line, i, esc);
             i += esc;

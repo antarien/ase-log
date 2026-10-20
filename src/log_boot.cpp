@@ -11,8 +11,8 @@
  * @layer       1 (Core)
  * @category    process/computation
  * @created     2026-08-30
- * @modified    2026-08-30
- * @version     1.0.0
+ * @modified    2026-10-08
+ * @version     1.1.0
  *
  * CORE INFRASTRUCTURE IMPLEMENTATION COMPLIANCE
  *
@@ -54,6 +54,9 @@
 #include <ase/log/log.hpp>
 
 #include <ase/log/log_filter.hpp>
+// capture_ring_lines() — die Zeilenzahl des Aufnahme-Rings aus logs/quota.conf. Direkt
+// eingebunden: log_resource_manager.hpp nennt diesen Header nur in Kommentaren.
+#include <ase/log/internal/log_files.hpp>
 #include <ase/log/internal/log_resource_manager.hpp>
 #include <ase/types/types.hpp>
 
@@ -76,11 +79,17 @@ namespace ase::log {
 void install_capture_logger() {
     auto& active_logger = internal::logger_slot();
     if (active_logger) return;  // idempotent (tests / CLI tools)
-    // Der Ring wird in EINEM Griff gebaut und abgelegt: er ist die einzige Senke dieses Loggers
-    // UND die Quelle des spaeteren Rueckspielens. Warum beides zusammengehoert, steht bei
-    // internal::install_capture_ring; die Zeilenzahl ist dort benannt statt hier gesetzt.
+    // Der Ring wird in EINEM Griff gebaut und abgelegt: er ist die einzige Senke dieses Loggers,
+    // die etwas aufbewahrt, UND die Quelle des spaeteren Rueckspielens. Warum beides
+    // zusammengehoert, steht bei internal::install_capture_ring. Die Zeilenzahl liest
+    // capture_ring_lines() zur Laufzeit aus logs/quota.conf (Schluessel boot_lines): sie aendern
+    // heisst die Datei aendern, nicht bauen.
     internal::SinkSet sinks;
-    sinks.add(internal::install_capture_ring(internal::kCaptureRingLines));
+    sinks.add(internal::install_capture_ring(internal::capture_ring_lines()));
+    // Die Zaehl-Senke HINTER dem Ring: sie zaehlt jede Zeile, die der Start-Logger annimmt, damit
+    // finalize_logger_after_boot einen Ueberlauf des Rings melden kann, statt ihn zu verschweigen.
+    // Die Reihenfolge gehoert zur Zusage — erst liegt die Zeile im Ring, dann wird sie gezaehlt.
+    sinks.add(internal::install_capture_counter());
 
     // Beide Stufen auf TRC: in der Startphase entscheidet noch kein Filter, was aufbewahrt wird —
     // wer hier siebt, siebt genau die Zeilen weg, die eine gescheiterte Startphase erklaeren.
@@ -130,13 +139,31 @@ void finalize_logger_after_boot() {
     // zurueckspielen, dann abhaengen. Dazwischen haengt der Ring noch, also hat der Logger
     // durchgehend ein Ziel. Beide Rumpfe stehen beim Besitzer des Rings — der Vergleich ueber
     // die rohe Adresse ebenfalls, denn nur er haelt den Besitzzeiger.
-    if (internal::replay_capture_ring(real_sinks) > 0) {
+    //
+    // Den Zaehlerstand VOR dem Rueckspielen lesen: jede gezaehlte Zeile lag in diesem Augenblick
+    // schon im Ring (die Zaehl-Senke haengt hinter ihm), also kann die Differenz unten einen
+    // Verlust nie zu gross angeben — schlimmstenfalls fehlen ihr Zeilen, die ein anderer Thread
+    // genau jetzt schreibt.
+    const uint64_t taken = res.capture_lines();
+    const uint32_t replayed = internal::replay_capture_ring(real_sinks);
+    if (replayed > 0) {
         logger->flush();
     }
     // Rueckgabewert bewusst verworfen: "es haengte kein Ring" ist hier kein Fehler, sondern der
     // zweite gueltige Zustand — eine Startphase ohne Aufnahme (Test, CLI-Werkzeug) kommt genauso
     // hier an wie eine mit.
     internal::detach_capture_ring();
+
+    // STILLE IST HIER VERBOTEN. Hat der Ring Zeilen verdraengt, beginnt das zurueckgespielte Log
+    // mitten in der Startfolge, und ohne diese Zeile saehe das aus wie ein Start, der spaeter
+    // begonnen hat — genau so blieb der Verlust der load_all()-Zeile des World-Tiers unbemerkt.
+    // Aggregatform, weil die Aussage das Verhaeltnis ist: verdraengte Zeilen von angenommenen.
+    // value_id nennt den Hebel, den Schluessel boot_lines in logs/quota.conf. Die Zeile steht NACH
+    // dem Abhaengen, damit sie nicht selbst noch in den Ring und durch die Zaehlung laeuft.
+    if (taken > replayed) {
+        log::warn(log::WRN::CAT::CAPACITY_REACHED, "LogSystem", "boot_lines",
+                  static_cast<float>(taken - replayed), static_cast<float>(taken));
+    }
 }
 
 // Parse --log <+/-token...> from argv and feed the 3-axis filter engine.

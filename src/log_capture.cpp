@@ -13,9 +13,10 @@
  * @layer       1 (Core)
  * @design      DSGN_021
  * @category    ecs/module
+ * @usecase     usecase:100362 - write a log line
  * @created     2026-08-20
- * @modified    2026-08-20
- * @version     1.0.0
+ * @modified    2026-10-11
+ * @version     1.0.1
  *
  * CORE INFRASTRUCTURE IMPLEMENTATION COMPLIANCE
  *
@@ -147,7 +148,7 @@ bool capture_begin() {
         return false;
     }
 
-    auto& logger = LogSystem::logger();
+    auto& logger = internal::logger_slot();
     if (!logger) {
         // Noch kein Logger: es gibt nichts umzuleiten. Der Aufrufer darf weitermachen,
         // seine Logzeilen haben schlicht kein Ziel — genau wie ohne diese Klammer.
@@ -204,7 +205,7 @@ uint32_t capture_replay() {
         return 0u;
     }
 
-    auto& logger = LogSystem::logger();
+    auto& logger = internal::logger_slot();
     if (!logger) {
         return 0u;
     }
@@ -242,7 +243,7 @@ void capture_end(bool restore_sinks) {
         return;
     }
 
-    auto& logger = LogSystem::logger();
+    auto& logger = internal::logger_slot();
     if (logger && restore_sinks) {
         logger->sinks().clear();
         for (auto& sink : state.saved) {

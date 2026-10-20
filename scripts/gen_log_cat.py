@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Generate Log Categories Header + Implementation
-================================================
+
 Reads taxonomy JSON files + Hub JSON files and generates C++ header AND implementation.
 
 Usage:
@@ -13,6 +13,10 @@ Output:
 
 The header is small and safe to include everywhere.
 The init table + libcuckoo engine is compiled ONCE in the .cpp.
+
+Serves usecase:100004 - generate derived files: the category tables and lookups are derived
+from log_categories.json, the taxonomy and the hub JSON files, and a derived header changes
+only when what it declares changes.
 """
 
 import json
@@ -20,9 +24,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-# ---------------------------------------------------------------------------
-# Console framework (SSOT: sha-client-web/sha-web-console)
-# ---------------------------------------------------------------------------
+# CONSOLE FRAMEWORK (SSOT: sha-client-web/sha-web-console)
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 ASE_LOG_DIR = SCRIPT_DIR.parent
@@ -33,9 +35,7 @@ from console import (C, section_header, section_line, section_pipe, section_deta
                       register_labels, tprint, c256, CHECK, CROSS, SKIP, HASH, ARROW, WARN)
 
 
-# ---------------------------------------------------------------------------
-# Hub JSON Loading
-# ---------------------------------------------------------------------------
+# HUB JSON LOADING
 
 def load_hub_value_parts(hub_data_dir: Path) -> Tuple[Set[str], Set[str], Set[str],
                                                        int, int, int]:
@@ -66,9 +66,7 @@ def load_hub_value_parts(hub_data_dir: Path) -> Tuple[Set[str], Set[str], Set[st
     return const_parts, metric_parts, tag_parts, const_count, metric_count, tag_count
 
 
-# ---------------------------------------------------------------------------
-# Taxonomy + Module Loading
-# ---------------------------------------------------------------------------
+# TAXONOMY + MODULE LOADING
 
 def load_all_abbreviations(taxonomy_dir: Path,
                            project_root: Path) -> Tuple[Dict[str, int], List[Tuple[str, str]]]:
@@ -86,7 +84,7 @@ def load_all_abbreviations(taxonomy_dir: Path,
     abbrevs: Set[str] = set()
     name_aliases: List[Tuple[str, str]] = []
 
-    # --- Source 1: Taxonomy ---
+    # SOURCE 1: TAXONOMY
 
     # Build name → abbrev mapping from _index.json (semantic categories)
     index_name_to_abbrev: Dict[str, str] = {}
@@ -119,12 +117,12 @@ def load_all_abbreviations(taxonomy_dir: Path,
     for name in index_name_to_abbrev:
         abbrevs.discard(name)
 
-    # --- Source 1b: Lifecycle method tokens (on_start, tick, on_stop) ---
+    # SOURCE 1B: LIFECYCLE METHOD TOKENS (on_start, tick, on_stop)
 
     lifecycle_tokens = {'TICK', 'START', 'STOP', 'PRESTART', 'CLEANUP', 'INIT'}
     abbrevs |= lifecycle_tokens
 
-    # --- Source 2: Hub value ID parts ---
+    # SOURCE 2: HUB VALUE ID PARTS
 
     hub_data_dir = project_root / "modules" / "ase-hub" / "data"
     if hub_data_dir.exists():
@@ -134,7 +132,7 @@ def load_all_abbreviations(taxonomy_dir: Path,
         abbrevs |= metric_parts
         abbrevs |= tag_parts
 
-    # --- Noun-alias cleanup: Hub parts can re-add noun words after discard ---
+    # NOUN-ALIAS CLEANUP: Hub parts can re-add noun words after discard
     # e.g. "TIME" discarded at line 161, re-added via "GAME_TIME" hub split.
     # Must alias to abbreviation (BIT_TIM), not get own bit (BIT_TIME).
 
@@ -173,7 +171,7 @@ def load_all_abbreviations(taxonomy_dir: Path,
             if target in alias_redirect:
                 name_aliases[i] = (name, alias_redirect[target])
 
-    # --- Source 3: Module prefixes ---
+    # SOURCE 3: MODULE PREFIXES
 
     module_prefixes = _scan_module_prefixes(project_root)
 
@@ -296,9 +294,7 @@ def fnv1a_hash(s: str) -> int:
     return h
 
 
-# ---------------------------------------------------------------------------
-# Code Generation
-# ---------------------------------------------------------------------------
+# CODE GENERATION
 
 def generate_header(abbrev_bits: Dict[str, int], output_path: Path) -> bool:
     """Generate the small C++ header file (declarations only).
@@ -328,17 +324,19 @@ def generate_header(abbrev_bits: Dict[str, int], output_path: Path) -> bool:
         ' * @file        log_cat_gen.hpp',
         ' * @brief       Category bit positions and the runtime log filter state',
         ' * @description Declarations only: one bit per taxonomy category, the mask',
-        ' *              type that holds them, and the filter state the log macros',
-        ' *              read on every call. The init table and the libcuckoo engine',
-        ' *              live in log_cat_gen.cpp so this header stays cheap to',
-        ' *              include everywhere.',
+        ' *              type that holds them, and the filter state the CLI filter',
+        ' *              and the filter check read and write. The init table and the',
+        ' *              libcuckoo engine live in log_cat_gen.cpp. A unit that only',
+        ' *              writes a line does not reach this header: the levels and the',
+        ' *              check it calls stand in log.hpp.',
         ' *',
         ' * @module      ase-log',
         ' * @layer       1 (Core)',
         ' * @category    ecs/module',
+        ' * @usecase     usecase:100362 - write a log line',
         ' * @created     2026-01-09',
-        ' * @modified    2026-08-20',
-        ' * @version     1.1.0',
+        ' * @modified    2026-10-19',
+        ' * @version     1.2.0',
         ' *',
         ' * CORE INFRASTRUCTURE COMPLIANCE',
         ' *',
@@ -363,11 +361,16 @@ def generate_header(abbrev_bits: Dict[str, int], output_path: Path) -> bool:
         ' * Generated by: core/ase-log/scripts/gen_log_cat.py',
         ' * Source: taxonomy/ + hub_constants.json + hub_metrics.json + hub_tags.json',
         ' * ',
-        ' * SMALL HEADER - safe to include everywhere.',
+        ' * WHO INCLUDES IT: log_filter.hpp (the filter control) and log_cat_gen.cpp.',
         ' * Init table + libcuckoo engine is in log_cat_gen.cpp.',
         ' * ',
         f' * Capacity: {fixed_category_count} categories, {fixed_chunk_count} chunks (64 bits each)',
         ' * FIXED size - adding categories only changes log_cat_gen.cpp, not this header.',
+        ' * ',
+        ' * THE LEVEL BITS AND THE CHECK OF A CALL ARE NOT HERE. log::level and the',
+        ' * declarations of should_log_loc and should_log_client_loc stand in log.hpp,',
+        ' * the header every caller already holds; a change to the filter state here',
+        ' * rebuilds the filter control, not every unit that writes a line.',
         ' */',
         '',
         '#include <atomic>',
@@ -375,28 +378,12 @@ def generate_header(abbrev_bits: Dict[str, int], output_path: Path) -> bool:
         '',
         'namespace ase::log::filter {',
         '',
-        '// ============================================================================',
-        '// Constants (FIXED - do not change! Only .cpp changes when categories grow)',
-        '// ============================================================================',
+        '// CONSTANTS (FIXED - ONLY THE .CPP CHANGES WHEN CATEGORIES GROW)',
         '',
         f'constexpr int CATEGORY_COUNT = {fixed_category_count};',
         f'constexpr int CHUNK_COUNT = {fixed_chunk_count};',
         '',
-        '// ============================================================================',
-        '// Log Levels (bitmask)',
-        '// ============================================================================',
-        '',
-        'constexpr uint8_t LVL_TRC = 0x01;  // Trace',
-        'constexpr uint8_t LVL_DBG = 0x02;  // Debug',
-        'constexpr uint8_t LVL_INF = 0x04;  // Info',
-        'constexpr uint8_t LVL_WRN = 0x08;  // Warn',
-        'constexpr uint8_t LVL_ERR = 0x10;  // Error',
-        'constexpr uint8_t LVL_CRT = 0x20;  // Critical',
-        'constexpr uint8_t LVL_ALL = 0x3F;  // All levels',
-        '',
-        '// ============================================================================',
-        '// Category Bit-Array (scalable to unlimited categories)',
-        '// ============================================================================',
+        '// CATEGORY BIT ARRAY (SCALABLE TO UNLIMITED CATEGORIES)',
         '',
         'struct CategoryMask {',
         '    uint64_t chunks[CHUNK_COUNT] = {};',
@@ -405,9 +392,7 @@ def generate_header(abbrev_bits: Dict[str, int], output_path: Path) -> bool:
         '    bool intersects(const CategoryMask& other) const;',
         '};',
         '',
-        '// ============================================================================',
-        '// Runtime Filter State (defined in log_cat_gen.cpp)',
-        '// ============================================================================',
+        '// RUNTIME FILTER STATE (DEFINED IN LOG_CAT_GEN.CPP)',
         '//',
         '// ACCESSORS, NOT FREE GLOBALS (changed 2026-08-20). These six pieces of state used',
         '// to be `extern` variables. Two reasons for the accessor form, and the rule finding',
@@ -430,16 +415,12 @@ def generate_header(abbrev_bits: Dict[str, int], output_path: Path) -> bool:
         'CategoryMask& whitelisted_categories();  ///< Whitelist (empty = all pass)',
         'std::atomic<bool>& has_whitelist();      ///< True if any +CATEGORY was set',
         '',
-        '// ============================================================================',
-        '// Client Filter State (defined in log_cat_gen.cpp)',
-        '// ============================================================================',
+        '// CLIENT FILTER STATE (DEFINED IN LOG_CAT_GEN.CPP)',
         '',
         'std::atomic<uint64_t>& client_mask();     ///< Whitelist (0 = all pass)',
         'std::atomic<uint64_t>& blocked_clients();  ///< Blacklist bitmask',
         '',
-        '// ============================================================================',
-        '// Function Declarations (implemented in log_cat_gen.cpp)',
-        '// ============================================================================',
+        '// FUNCTION DECLARATIONS (IMPLEMENTED IN LOG_CAT_GEN.CPP)',
         '',
         '/// Hash abbreviation to bit position (-1 if not found)',
         'int abbrev_to_bit(uint32_t hash);',
@@ -452,18 +433,6 @@ def generate_header(abbrev_bits: Dict[str, int], output_path: Path) -> bool:
         '',
         '/// Parse CLI filter string (e.g., "+INF +WRN -BCT +EPH +TICK +CLT:01")',
         'void parse_log_filter(const char* filter_str);',
-        '',
-        '/// O(1) cached filter check for file+function (~12 cycles hot path)',
-        '// The location key is computed at the CALL SITE (log::loc_key, constexpr-folded), not',
-        '// here: hashing the two strings per call would multiply the fast path this cache exists',
-        '// to avoid. Until 2026-08-22 the key came from reinterpret_cast on the two POINTERS —',
-        '// forbidden, and unstable across translation units where identical __FILE__ literals',
-        '// may sit at different addresses.',
-        'bool should_log_loc(uint8_t level, const char* file, const char* func, uint64_t key);',
-        '',
-        '/// O(1) cached filter check for client file+function',
-        'bool should_log_client_loc(uint8_t level, const char* file, const char* func, uint64_t key,',
-        '                           uint64_t client_bit);',
         '',
         '/// Invalidate location cache (call after filter changes)',
         'void invalidate_loc_cache();',
@@ -505,9 +474,10 @@ def generate_impl(abbrev_bits: Dict[str, int],
         ' * @module      ase-log',
         ' * @layer       1 (Core)',
         ' * @category    ecs/module',
+        ' * @usecase     usecase:100362 - write a log line',
         ' * @created     2026-01-09',
-        ' * @modified    2026-08-20',
-        ' * @version     1.1.0',
+        ' * @modified    2026-10-19',
+        ' * @version     1.2.0',
         ' *',
         ' * CORE INFRASTRUCTURE IMPLEMENTATION COMPLIANCE',
         ' *',
@@ -530,24 +500,27 @@ def generate_impl(abbrev_bits: Dict[str, int],
         f' * {num_categories} categories + {num_aliases} module aliases.',
         ' * Uses libcuckoo O(1) hashmap instead of switch statement.',
         ' * Compiled ONCE, not in every translation unit.',
+        ' * ',
+        ' * log.hpp declares should_log_loc and should_log_client_loc, defined here, and',
+        ' * holds the level bits (ase::log::level) this file compares. They are named in',
+        ' * full: the two checks take a parameter called level.',
         ' */',
         '',
         '#include <ase/log/log_cat_gen.hpp>',
+        '#include <ase/log/log.hpp>',
         '#include <libcuckoo/cuckoohash_map.hh>',
         '#include <cstring>',
         '',
         'namespace ase::log::filter {',
         '',
-        '// ============================================================================',
-        '// Runtime Filter State (definitions)',
-        '// ============================================================================',
+        '// RUNTIME FILTER STATE (DEFINITIONS)',
         '',
         '// Function-local statics, same shape as loc_cache() and abbrev_map() below: each is',
         '// initialised on FIRST USE, not during static initialisation, so a log call from a',
         '// translation unit that initialises earlier than this one cannot read an',
         '// uninitialised object. See the header for the full reasoning.',
         'std::atomic<uint8_t>& level_mask() {',
-        '    static std::atomic<uint8_t> mask{LVL_ALL};',
+        '    static std::atomic<uint8_t> mask{ase::log::level::all};',
         '    return mask;',
         '}',
         '',
@@ -576,9 +549,7 @@ def generate_impl(abbrev_bits: Dict[str, int],
         '    return mask;',
         '}',
         '',
-        '// ============================================================================',
-        '// CategoryMask Implementation',
-        '// ============================================================================',
+        '// CATEGORYMASK IMPLEMENTATION',
         '',
         'void CategoryMask::set(int bit_pos) {',
         '    if (bit_pos >= 0 && bit_pos < CATEGORY_COUNT) {',
@@ -593,9 +564,7 @@ def generate_impl(abbrev_bits: Dict[str, int],
         '    return false;',
         '}',
         '',
-        '// ============================================================================',
-        '// Category Bit Positions (auto-generated from taxonomy + hub JSONs)',
-        '// ============================================================================',
+        '// CATEGORY BIT POSITIONS (GENERATED FROM TAXONOMY + HUB JSONS)',
         '',
     ]
 
@@ -607,9 +576,7 @@ def generate_impl(abbrev_bits: Dict[str, int],
 
     lines.extend([
         '',
-        '// ============================================================================',
-        '// Init Table + libcuckoo Engine (replaces big switch)',
-        '// ============================================================================',
+        '// INIT TABLE + LIBCUCKOO ENGINE (NO SWITCH OVER THE NAMES)',
         '',
         'namespace {',
         '',
@@ -634,7 +601,7 @@ def generate_impl(abbrev_bits: Dict[str, int],
         '    return result;',
         '}',
         '',
-        '// --- Init Table (constexpr, lives in .rodata) ---',
+        '// INIT TABLE (CONSTEXPR, LIVES IN .RODATA)',
         'struct InitEntry { uint32_t hash; int bit; };',
         'constexpr InitEntry g_init_table[] = {',
     ])
@@ -676,7 +643,7 @@ def generate_impl(abbrev_bits: Dict[str, int],
         '};',
         f'constexpr int INIT_TABLE_SIZE = {init_table_size};',
         '',
-        '// --- libcuckoo Hashmaps (Meyers Singletons, SIOF-safe) ---',
+        '// LIBCUCKOO HASHMAPS (FUNCTION-LOCAL STATICS, SIOF-SAFE)',
         '',
         'libcuckoo::cuckoohash_map<uint32_t, int>& abbrev_map() {',
         f'    static libcuckoo::cuckoohash_map<uint32_t, int> map({init_table_size * 2});',
@@ -700,9 +667,7 @@ def generate_impl(abbrev_bits: Dict[str, int],
         '',
         '}  // anonymous namespace',
         '',
-        '// ============================================================================',
-        '// O(1) Hash Lookup (replaces big switch)',
-        '// ============================================================================',
+        '// O(1) HASH LOOKUP',
         '',
         'int abbrev_to_bit(uint32_t hash) {',
         '    int r = -1;',
@@ -710,9 +675,7 @@ def generate_impl(abbrev_bits: Dict[str, int],
         '    return r;',
         '}',
         '',
-        '// ============================================================================',
-        '// Filename to Categories',
-        '// ============================================================================',
+        '// FILENAME TO CATEGORIES',
         '',
         'CategoryMask file_to_categories(const char* file) {',
         '    CategoryMask mask{};',
@@ -733,9 +696,7 @@ def generate_impl(abbrev_bits: Dict[str, int],
         '    return mask;',
         '}',
         '',
-        '// ============================================================================',
-        '// O(1) Cached Filter — file + function categories (~12 cycles hot path)',
-        '// ============================================================================',
+        '// O(1) CACHED FILTER: FILE + FUNCTION CATEGORIES (~12 CYCLES HOT PATH)',
         '',
         'CategoryMask func_to_categories(const char* func) {',
         '    CategoryMask mask{};',
@@ -805,9 +766,7 @@ def generate_impl(abbrev_bits: Dict[str, int],
         '',
         'void invalidate_loc_cache() { loc_cache().clear(); }',
         '',
-        '// ============================================================================',
-        '// CLI Argument Parser',
-        '// ============================================================================',
+        '// CLI ARGUMENT PARSER',
         '',
         'namespace {',
         '',
@@ -842,12 +801,12 @@ def generate_impl(abbrev_bits: Dict[str, int],
         '            return;',
         '        }',
         '        // +LEVEL → enable specific level',
-        '        if (std::strcmp(code, "TRC") == 0) { level_mask().fetch_or(LVL_TRC); return; }',
-        '        if (std::strcmp(code, "DBG") == 0) { level_mask().fetch_or(LVL_DBG); return; }',
-        '        if (std::strcmp(code, "INF") == 0) { level_mask().fetch_or(LVL_INF); return; }',
-        '        if (std::strcmp(code, "WRN") == 0) { level_mask().fetch_or(LVL_WRN); return; }',
-        '        if (std::strcmp(code, "ERR") == 0) { level_mask().fetch_or(LVL_ERR); return; }',
-        '        if (std::strcmp(code, "CRT") == 0) { level_mask().fetch_or(LVL_CRT); return; }',
+        '        if (std::strcmp(code, "TRC") == 0) { level_mask().fetch_or(ase::log::level::trace); return; }',
+        '        if (std::strcmp(code, "DBG") == 0) { level_mask().fetch_or(ase::log::level::debug); return; }',
+        '        if (std::strcmp(code, "INF") == 0) { level_mask().fetch_or(ase::log::level::info); return; }',
+        '        if (std::strcmp(code, "WRN") == 0) { level_mask().fetch_or(ase::log::level::warn); return; }',
+        '        if (std::strcmp(code, "ERR") == 0) { level_mask().fetch_or(ase::log::level::error); return; }',
+        '        if (std::strcmp(code, "CRT") == 0) { level_mask().fetch_or(ase::log::level::critical); return; }',
         '        // +CATEGORY → whitelist',
         '        {',
         '            uint32_t hash = 2166136261u;',
@@ -937,9 +896,7 @@ def generate_impl(abbrev_bits: Dict[str, int],
     return write_if_changed(output_path, new_content)
 
 
-# ---------------------------------------------------------------------------
-# Error/Warning Categories (ERR::CAT / WRN::CAT) from log_categories.json
-# ---------------------------------------------------------------------------
+# ERROR/WARNING CATEGORIES (ERR::CAT / WRN::CAT) FROM log_categories.json
 #
 # WARUM DIESE KATEGORIEN HIER ENTSTEHEN UND NICHT MEHR IN log.hpp:
 # Sie standen als Konstanten, drei Tabellen und ein Zaehler von Hand im L1-Header. Jede neue
@@ -949,6 +906,12 @@ def generate_impl(abbrev_bits: Dict[str, int],
 # starb bei 468 von 887 Zielen in genau so einem Fenster.
 #
 # Ab hier ist eine neue Kategorie EINE Zeile in log_categories.json plus ein Generatorlauf.
+#
+# UND DER TEXT EINER KATEGORIE STEHT NIE IM HEADER. log_err_cat_gen.hpp haengt ueber log.hpp an
+# fast jeder Einheit jedes Tiers (gemessen 2026-10-18: World 2073 von 2373); stand dort die
+# Notiz einer Kategorie, baute jede Textaenderung in log_categories.json all diese Einheiten
+# neu. Doc, short, hint und suffix stehen deshalb in log_err_cat_gen.cpp, und der Header
+# aendert sich nur noch, wenn eine Kategorie dazukommt, umbenannt wird oder wegfaellt.
 
 
 # @modified der erzeugten Dateien. BEWUSST EINE KONSTANTE, nie date.today():
@@ -957,7 +920,7 @@ def generate_impl(abbrev_bits: Dict[str, int],
 # Ein taeglicher Vollbau als Nebenwirkung einer Datumszeile ist genau die Kaskade, gegen die
 # die Trennung Header/Impl gebaut ist. Wer den Generator inhaltlich aendert, zieht dieses
 # Datum mit.
-GEN_DATE = "2026-08-23"
+GEN_DATE = "2026-10-18"
 
 # Die Pflichtblöcke aus INST_ASE_LINT.md Section 9. Uebernommen aus log_cat_gen.hpp/.cpp,
 # die dieselbe Pruefung bestehen. Die Kaestchen bleiben LEER: das Tor ist der Pruefer, ein
@@ -1060,18 +1023,18 @@ def policy_value(policy: dict, key: str):
 
 
 def load_sha_colors(ase_log_dir: Path):
-    """The SHA colour palette from the LOCAL down-top copy. colors.ts ist die SSOT der
-    Werte; generate-colors.cjs verteilt die generierte python-Form als lokale Kopie nach
-    core/ase-log/data/generated/ (Shader-Muster: der Producer-Lauf ueberschreibt die
-    Konsumenten-Kopie). Dieser Generator liest AUSSCHLIESSLICH die lokale Kopie - ein
-    Cross-Subgit-Import aus clients/ waere eine Schichtungs-Inversion. Fehlt die Kopie,
-    bricht der Lauf laut."""
+    """The SHA colour palette from its generated python form. colors.ts ist die SSOT der
+    Werte; generate-colors.cjs schreibt daraus die python-Form nach
+    core/ase-log/data/generated/ (Shader-Muster: jeder Lauf des Erzeugers schreibt die Datei
+    beim Verbraucher neu). Dieser Generator liest AUSSCHLIESSLICH diese erzeugte Datei - ein
+    Cross-Subgit-Import aus clients/ waere eine Schichtungs-Inversion. Fehlt sie, bricht der
+    Lauf laut."""
     import importlib.util
     path = ase_log_dir / "data" / "generated" / "colors.py"
     if not path.exists():
         raise FileNotFoundError(
-            f"SHA colour copy missing: {path} - run "
-            f"clients/sha-client-web/sha-web-console/generate-colors.cjs to distribute it")
+            f"generated SHA colour file missing: {path} - run "
+            f"clients/sha-client-web/sha-web-console/generate-colors.cjs to write it")
     spec = importlib.util.spec_from_file_location("sha_generated_colors", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -1269,10 +1232,10 @@ def generate_display_impl(display_words: Dict[str, str], policy: dict, sha,
         else:
             out.append(f'    {{{s[0]}u, {s[1]}, "{_cpp_str(s[2])}"}},')
     # Die Politik traegt Farb-NAMEN, die WERTE kommen aus der SHA-Palette (colors.ts) ueber
-    # die lokale Down-Top-Kopie in data/generated/ - der Betreiber-Lauf von generate-colors.cjs
-    # verteilt sie dorthin. Keine Fallback-Defaults: ein fehlender Schluessel oder ein Name
-    # ausserhalb der Palette bricht den Lauf laut, statt eine zweite stille Wahrheit zu
-    # kompilieren.
+    # deren erzeugte python-Form in data/generated/ - der Betreiber-Lauf von
+    # generate-colors.cjs schreibt sie dorthin. Keine Fallback-Defaults: ein fehlender
+    # Schluessel oder ein Name ausserhalb der Palette bricht den Lauf laut, statt eine zweite
+    # stille Wahrheit zu kompilieren.
     timestamp_sgr = resolve_color_sgr(sha, policy_value(policy, 'timestamp_color'))
     level_cfg = policy_value(policy, 'level_colors')
     level_sgrs = [resolve_color_sgr(sha, policy_value(level_cfg, name))
@@ -1334,7 +1297,7 @@ def generate_display_impl(display_words: Dict[str, str], policy: dict, sha,
             '}', '']
     out += ['// Die semantischen Rollenfarben der Konsolen-Textfaerbung, je Rolle ein Getter -',
             '// die Politik nennt je Rolle einen SHA-Palettennamen (text_colors), der Wert',
-            '// kommt aus colors.ts ueber die lokale Down-Top-Kopie.']
+            '// kommt aus colors.ts ueber deren erzeugte python-Form in data/generated/.']
     for name in ('string', 'number', 'url', 'path', 'tag', 'punct'):
         out += [f'const char* display_sgr_{name}() {{',
                 f'    return "{text_sgrs[name]}";',
@@ -1370,7 +1333,7 @@ def _flat_cats(block: dict, seen: Dict[int, str]) -> List[dict]:
     """Read one category list and attach each entry's FNV-1a hash.
 
     THE HASHED STRING IS "<NAMESPACE>_<NAME>", NOT THE BARE NAME - and that prefix is the
-    whole reason the two levels can mirror each other. Every category exists on both levels
+    whole reason the two levels can carry the same names. Every category exists on both levels
     wherever it makes sense, so the same NAME appears twice on purpose (HOST_OP_FAILED,
     CAPACITY_REACHED, ...). Hashing the bare name would give both the identical value, and
     then ERR::CAT::HOST_OP_FAILED and WRN::CAT::HOST_OP_FAILED would be the SAME constant:
@@ -1437,7 +1400,9 @@ def _wrap_literal(text: str, indent: str, width: int = 96, trailer: str = ',') -
 
 
 def generate_err_cat_header(cats: dict, output_path: Path) -> bool:
-    """Constants + getter declarations. NO tables - this header is included everywhere."""
+    """Constants + getter declarations. NO tables and NO category text - this header is
+    included everywhere, so it carries only what changes when a category is added, renamed
+    or removed."""
     err, wrn = _flat_pair(cats)
 
     out = ['#pragma once', '', '/**', ' * ASE CORE INFRASTRUCTURE HEADER', ' *',
@@ -1449,15 +1414,14 @@ def generate_err_cat_header(cats: dict, output_path: Path) -> bool:
            ' * @design      DSGN_021',
            ' * @brief       ERR::CAT and WRN::CAT name hashes plus the lookup declarations',
            ' * @description Constants only - each one is the FNV-1a hash of its own NAME.',
-           ' *              There is no id, no table and no counter: a category cannot be',
-           ' *              renumbered, so inserting or reordering one changes nothing that',
-           ' *              already exists. The name/help/suffix lookups live in',
-           ' *              log_err_cat_gen.cpp, so adding a category recompiles ONE file',
-           ' *              instead of the tree.',
+           ' *              There is no id, no table, no counter and no category text: the',
+           ' *              doc, short, hint and suffix of a category stand in',
+           ' *              log_err_cat_gen.cpp, so editing them recompiles ONE file. This',
+           ' *              header changes only when a category is added, renamed or removed.',
            ' *', ' * @module      ase-log', ' * @layer       1 (Core)',
            ' * @category    ecs/module', ' * @created     2026-08-23',
            f' * @modified    {GEN_DATE}',
-           ' * @version     1.0.0', ' *',
+           ' * @version     1.1.0', ' *',
            ' * CORE INFRASTRUCTURE COMPLIANCE', ' *'] \
         + [f' * {line}' for line in CORE_HEADER_CHECKLIST] \
         + [' *',
@@ -1465,16 +1429,15 @@ def generate_err_cat_header(cats: dict, output_path: Path) -> bool:
            ' * Source: core/ase-log/data/log_categories.json', ' */', '',
            '#include <cstdint>', '', 'namespace ase::log {', '']
 
+    # The doc text of a category is written into log_err_cat_gen.cpp, never here: this header is
+    # in almost every unit of every tier, and a text in it made a doc edit rebuild them all.
     for block, slots in (('ERR', err), ('WRN', wrn)):
         out.append(f'namespace {block} {{')
         out.append('namespace CAT {')
+        out.append(f'    // Each value is the FNV-1a hash of "{block}_<NAME>". The NAMESPACE is part of the')
+        out.append('    // hashed string, so an ERR and a WRN category of one name are two distinct values.')
+        out.append('    // What a category means stands beside its name lookup in log_err_cat_gen.cpp.')
         for slot in slots:
-            doc = slot.get('doc', '')
-            if doc:
-                for line in _doc_lines(doc):
-                    out.append(f'    // {line}')
-            out.append(f"    // FNV-1a of \"{slot['hash_key']}\" - the NAMESPACE is part of the")
-            out.append('    // hashed string, so the mirrored halves are two distinct values.')
             out.append(f"    constexpr uint32_t {slot['name']} = {slot['hash']}u;")
         out.append('}  // namespace CAT')
         out.append(f'}}  // namespace {block}')
@@ -1532,9 +1495,10 @@ def _doc_lines(doc: str, width: int = 88) -> List[str]:
 def shorten_display_text(text: str, resolved: Dict[str, str], fillers: Set[str]) -> str:
     """The display shortening applied AT GENERATION to the short and hint texts.
 
-    Mirrors the runtime walk in log_display.cpp over prose: whole words of
-    letters and digits, lowercased hash identity, abbreviation from the resolved
-    taxonomy table, fillers dropped together with the space in front of them.
+    Applies the rule of the runtime walk in log_display.cpp to prose, against the same
+    display table: whole words of letters and digits, lowercased hash identity,
+    abbreviation from the resolved taxonomy table, fillers dropped together with the
+    space in front of them.
     In the record every short and hint stands behind a space or an indent, so
     the leading-filler exception of the runtime walk never applies here - the
     text is shortened as if space-preceded, and the result is a FIXED POINT of
@@ -1604,7 +1568,10 @@ def generate_err_cat_impl(cats: dict, policy: dict, sha, display_words: Dict[str
     writer's own line end this puts ONE blank line under the record in every
     channel, so the next record does not glue onto the hint block. The
     full-wording help getter stays unshortened - it is not part of the
-    record."""
+    record.
+
+    The DOC of each category is written here as a comment above its name lookup. This
+    unit is the one a doc edit may recompile; the header never carries the text."""
     err, wrn = _flat_pair(cats)
     fillers = {w.lower() for w in policy_value(policy, 'fillers')}
 
@@ -1623,7 +1590,7 @@ def generate_err_cat_impl(cats: dict, policy: dict, sha, display_words: Dict[str
     # JEDE Farbe des Datensatzes wird HIER einkompiliert - die Tier-Logdateien tragen ANSI
     # als Systemsprache (log_sys.cpp), und nur eine Farbe im Datensatz ist in jedem Kanal
     # dieselbe. Die Politik nennt Farb-NAMEN, die WERTE kommen aus der SHA-Palette
-    # (colors.ts) ueber die lokale Down-Top-Kopie in data/generated/ - keine Fallbacks.
+    # (colors.ts) ueber deren erzeugte python-Form in data/generated/ - keine Fallbacks.
     # hint_wrap_columns bricht den hint schon an der ERZEUGUNG in mehrere physische Zeilen,
     # jede mit Einzug und eigener Farbe: ein roher tail kann nicht umbrechen, und eine Zeile
     # ohne Einzug saehe dort zerrissen aus.
@@ -1642,12 +1609,13 @@ def generate_err_cat_impl(cats: dict, policy: dict, sha, display_words: Dict[str
            ' *              LOUD marker, never the first entry: falling back to a real',
            ' *              category would print a plausible wrong help text, and a reader who',
            ' *              sees a valid-looking category does not check it. Kept in one',
-           ' *              translation unit so a changed help text recompiles this file,',
-           ' *              not the tree.',
+           ' *              translation unit so a changed help or doc text recompiles this',
+           ' *              file, not the tree; the doc of each category stands above its',
+           ' *              name lookup.',
            ' *', ' * @module      ase-log', ' * @layer       1 (Core)',
            ' * @category    ecs/module', ' * @created     2026-08-23',
            f' * @modified    {GEN_DATE}',
-           ' * @version     1.0.0', ' *',
+           ' * @version     1.1.0', ' *',
            ' * CORE INFRASTRUCTURE IMPLEMENTATION COMPLIANCE', ' *'] \
         + [f' * {line}' for line in CORE_IMPL_CHECKLIST] \
         + [' *',
@@ -1718,6 +1686,11 @@ def generate_err_cat_impl(cats: dict, policy: dict, sha, display_words: Dict[str
             value = slot.get(field, '')
             if shorten_it:
                 value = display_text(value)
+            # The name lookup carries the doc of each category: its one place outside the SSOT,
+            # in the one unit a doc edit may recompile.
+            if kind == 'name' and slot.get('doc', ''):
+                for line in _doc_lines(slot['doc']):
+                    out.append(f'    // {line}')
             out.append(f"    if (cat == {block}::CAT::{slot['name']}) {{")
             emit_return(value, '        ', kind)
             out.append('    }')
@@ -1747,9 +1720,7 @@ def write_if_changed(path: Path, content: str) -> bool:
     return True
 
 
-# ---------------------------------------------------------------------------
-# Main with Professional Output
-# ---------------------------------------------------------------------------
+# MAIN WITH PROFESSIONAL OUTPUT
 
 def main():
     script_dir = Path(__file__).parent  # ase-log/scripts/
@@ -1833,7 +1804,7 @@ def main():
     display_changed = generate_display_impl(display_words, display_policy, sha_colors,
                                             display_impl_path)
 
-    # === Professional Output ===
+    # PROFESSIONAL OUTPUT
 
     # One label column for the whole script: every label of every section below is
     # registered before the first line.

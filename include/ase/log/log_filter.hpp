@@ -5,18 +5,20 @@
  *
  * @file        log_filter.hpp
  * @design      DSGN_021
- * @brief       Runtime log filtering by category and level
- * @description Fast log filtering that extracts categories from filenames.
- *              Categories are matched against
- *              taxonomy abbreviations (BCT, PST, NET, etc.) found in the
- *              source filename. CLI: --log "+INF +WRN +ERR -BCT -PST"
+ * @brief       Runtime log filter control: the CLI filter, the level mask, blocked categories and clients
+ * @description The control side of the log filter. Categories are matched against taxonomy
+ *              abbreviations (BCT, PST, NET, etc.) found in the source filename and function
+ *              name. CLI: --log "+INF +WRN +ERR -BCT -PST". The check every log call makes and
+ *              the level bits stand in log.hpp; a unit that sets or reads the filter includes
+ *              this header itself.
  *
  * @module      ase-log
  * @layer       1 (Core)
  * @category    error/logging
+ * @usecase     usecase:100362 - write a log line
  * @created     2026-02-02
- * @modified    2026-02-02
- * @version     1.0.0
+ * @modified    2026-10-19
+ * @version     1.1.0
  *
  * CORE INFRASTRUCTURE COMPLIANCE
  *
@@ -39,29 +41,15 @@
  * [ ] API stable (changes require version bump)
  */
 
+#include <ase/log/log.hpp>
 #include <ase/log/log_cat_gen.hpp>
 
+#include <cstdint>
 #include <source_location>
 
 namespace ase::log {
 
-// ============================================================================
-// Level Constants (aliases for cleaner API)
-// ============================================================================
-
-namespace level {
-constexpr uint8_t trace    = filter::LVL_TRC;  ///< Trace level
-constexpr uint8_t debug    = filter::LVL_DBG;  ///< Debug level
-constexpr uint8_t info     = filter::LVL_INF;  ///< Info level
-constexpr uint8_t warn     = filter::LVL_WRN;  ///< Warning level
-constexpr uint8_t error    = filter::LVL_ERR;  ///< Error level
-constexpr uint8_t critical = filter::LVL_CRT;  ///< Critical level
-constexpr uint8_t all      = filter::LVL_ALL;  ///< All levels enabled
-}  // namespace level
-
-// ============================================================================
-// Category Extraction
-// ============================================================================
+// CATEGORY EXTRACTION
 
 /**
  * @brief Extract categories from the calling file's path.
@@ -73,93 +61,7 @@ constexpr uint8_t all      = filter::LVL_ALL;  ///< All levels enabled
     return filter::file_to_categories(loc.file_name());
 }
 
-// ============================================================================
-// Runtime Filter Check (3-axis: level × category × lifecycle phase)
-// ============================================================================
-
-/**
- * @brief Check if a log message should be emitted (level + file + function categories).
- * @param lvl Log level (use level::trace, level::info, etc.)
- * @param loc Source location (defaults to caller's location)
- * @return true if message should be logged, false if filtered out
- *
- * Extracts category tokens from BOTH the source filename AND function name.
- * This enables lifecycle-phase filtering: +TICK, -START, +STOP, etc.
- */
-/**
- * @brief Location key for the filter cache, computed at COMPILE time.
- *
- * WHY THIS EXISTS AND WHAT IT REPLACES: until 2026-08-22 the filter cache keyed on the
- * ADDRESSES of the two strings - `reinterpret_cast<uintptr_t>(file) ^ (cast(func) << 1)`
- * inside should_log_loc(). That carried two defects at once. The cast itself is forbidden
- * (REINTERPRET_CAST_FORBIDDEN, WRFL_ASE_FLYWEIGHT.md), and the key was not stable: identical
- * __FILE__ literals in different translation units may live at different addresses, so one
- * source line could occupy several cache slots while two different lines could collide.
- * Nobody measured that, because a filter cache that answers slightly wrong looks exactly like
- * a filter cache that answers.
- *
- * Hashing the CONTENT fixes both and costs nothing at run time. Every caller passes strings
- * that are call-site constants - the log_fmtN constructors take them from __builtin_FILE()/
- * __builtin_FUNCTION() defaults, and std::source_location::current() is fixed at the call site
- * too - so this folds to an immediate. THAT is why the key is built here and not inside
- * should_log_loc(): the same FNV computed per call would multiply the fast path the cache
- * exists to avoid (~12 cycles, see the note above the fmt-style overloads in log.hpp).
- *
- * THE SEPARATOR IS NOT COSMETIC: without it ("ab","c") and ("a","bc") hash identically. The
- * address form could not collide that way, so leaving it out would trade one silent defect
- * for another.
- *
- * IT LIVES IN THIS HEADER, not in log.hpp, because log.hpp carries an
- * `#include <ase/log/log_filter.hpp>` and
- * both sides need it: the log_fmtN wrappers there, should_log_loc/should_log_client below.
- */
-[[nodiscard]] constexpr uint64_t loc_key(const char* file, const char* func) noexcept {
-    constexpr uint64_t kOffsetBasis = 14695981039346656037ULL;
-    constexpr uint64_t kPrime       = 1099511628211ULL;
-    constexpr uint64_t kSeparator   = 0x1FULL;  // unit separator, occurs in neither string
-
-    uint64_t hash = kOffsetBasis;
-    for (const char* p = file; p != nullptr && *p != '\0'; ++p) {
-        hash ^= static_cast<uint64_t>(static_cast<unsigned char>(*p));
-        hash *= kPrime;
-    }
-    hash ^= kSeparator;
-    hash *= kPrime;
-    for (const char* p = func; p != nullptr && *p != '\0'; ++p) {
-        hash ^= static_cast<uint64_t>(static_cast<unsigned char>(*p));
-        hash *= kPrime;
-    }
-    return hash;
-}
-
-[[nodiscard]] inline bool should_log_loc(
-    uint8_t lvl,
-    const std::source_location& loc = std::source_location::current()) noexcept {
-    return filter::should_log_loc(lvl, loc.file_name(), loc.function_name(),
-                                  loc_key(loc.file_name(), loc.function_name()));
-}
-
-// ============================================================================
-// Client Filter Check (4-axis: level × category × lifecycle × client)
-// ============================================================================
-
-/**
- * @brief Check if a client log message should be emitted.
- * @param lvl Log level (use level::trace, level::info, etc.)
- * @param client_bit Client bitmask (1ULL << client_id, 0 = server log, always passes)
- * @param loc Source location (defaults to caller's location)
- * @return true if message should be logged, false if filtered out
- */
-[[nodiscard]] inline bool should_log_client(
-    uint8_t lvl, uint64_t client_bit,
-    const std::source_location& loc = std::source_location::current()) noexcept {
-    return filter::should_log_client_loc(lvl, loc.file_name(), loc.function_name(),
-                                         loc_key(loc.file_name(), loc.function_name()), client_bit);
-}
-
-// ============================================================================
-// CLI Argument Parsing
-// ============================================================================
+// CLI ARGUMENT PARSING
 
 /**
  * @brief Parse log filter string from CLI arguments.
@@ -233,7 +135,7 @@ inline void whitelist_client(int client_id) noexcept {
  * @brief Reset all filters to defaults (all levels enabled, no categories/clients blocked).
  */
 inline void reset_filters() noexcept {
-    filter::level_mask().store(filter::LVL_ALL, std::memory_order_relaxed);
+    filter::level_mask().store(level::all, std::memory_order_relaxed);
     for (int i = 0; i < filter::CHUNK_COUNT; ++i) {
         filter::blocked_categories().chunks[i] = 0;
         filter::whitelisted_categories().chunks[i] = 0;

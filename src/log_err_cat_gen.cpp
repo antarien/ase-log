@@ -13,15 +13,16 @@
  *              LOUD marker, never the first entry: falling back to a real
  *              category would print a plausible wrong help text, and a reader who
  *              sees a valid-looking category does not check it. Kept in one
- *              translation unit so a changed help text recompiles this file,
- *              not the tree.
+ *              translation unit so a changed help or doc text recompiles this
+ *              file, not the tree; the doc of each category stands above its
+ *              name lookup.
  *
  * @module      ase-log
  * @layer       1 (Core)
  * @category    ecs/module
  * @created     2026-08-23
- * @modified    2026-08-23
- * @version     1.0.0
+ * @modified    2026-10-18
+ * @version     1.1.0
  *
  * CORE INFRASTRUCTURE IMPLEMENTATION COMPLIANCE
  *
@@ -47,72 +48,187 @@
 namespace ase::log::detail {
 
 const char* get_cat_name(uint32_t cat) {
+    // Die ausdrueckliche Nicht-Aussage: der Aufrufer weiss, dass er nichts einzuordnen hat.
+    // NICHT der Rueckfall - ein unbekannter Hash landet seit dem Hash-Umbau in einer lauten
+    // Marke, nicht hier.
     if (cat == ERR::CAT::UNKNOWN) {
         return "\x1b[38;2;215;95;95mUNKNOWN\x1b[0m";
     }
+    // Hub entity doesn't exist for owner+value_id
     if (cat == ERR::CAT::HUB_NOT_FOUND) {
         return "\x1b[38;2;215;95;95mHUB_NOT_FOUND\x1b[0m";
     }
+    // GLOBAL hub value missing. Die EINZIGE Kategorie mit Zusatz - er stand frueher fest im
+    // Formatstring der Drei-Argument-Ueberladung und gehoerte damit der STELLIGKEIT statt der
+    // KATEGORIE.
     if (cat == ERR::CAT::HUB_GLOBAL_MISSING) {
         return "\x1b[38;2;215;95;95mHUB_GLOBAL_MISSING\x1b[0m";
     }
+    // Required component not on entity
     if (cat == ERR::CAT::COMPONENT_MISSING) {
         return "\x1b[38;2;215;95;95mCOMPONENT_MISSING\x1b[0m";
     }
+    // Der VERWALTER eines Moduls existiert nicht: die Sicht auf seinen Manager-Tag ist LEER,
+    // es gibt keine Entity zu nennen. Nicht COMPONENT_MISSING - das setzt eine VORHANDENE
+    // Entity voraus, der ein Component fehlt, und behauptet hier zweimal etwas Falsches, weil
+    // es weder eine Entity noch ein Component gibt. Nicht INVALID_ENTITY (nichts ist
+    // zerstoert, es wurde nie etwas angelegt), nicht REFERENCE_UNRESOLVED (es gibt keinen
+    // Verweis, es wird eine Sicht gebildet), nicht RESOURCE_UNAVAIL (das meint ausdruecklich
+    // eine Ressource AUSSERHALB der Registry, und eine Sicht IST die Registry), nicht
+    // HUB_NOT_FOUND (nicht der Hub, sondern der Manager-Tag eines Moduls). Die Bauform ist
+    // baumweit dieselbe: view<XxxMgrTag>() gefolgt von einer empty()- oder front()-Pruefung.
+    // ERR-Entsprechung von WRN::CAT::MANAGER_ABSENT: dieselbe Sache, aber der Vorgang endet
+    // hier statt weiterzulaufen.
     if (cat == ERR::CAT::MANAGER_ABSENT) {
         return "\x1b[38;2;215;95;95mMANAGER_ABSENT\x1b[0m";
     }
+    // Entity ID is invalid or destroyed
     if (cat == ERR::CAT::INVALID_ENTITY) {
         return "\x1b[38;2;215;95;95mINVALID_ENTITY\x1b[0m";
     }
+    // System runs before its dependency
     if (cat == ERR::CAT::SCHEDULE_ORDER) {
         return "\x1b[38;2;215;95;95mSCHEDULE_ORDER\x1b[0m";
     }
+    // Env/config value absent - lives BEFORE the registry. Kein GLOBAL-Zusatz: es liegt vor
+    // der Registry.
     if (cat == ERR::CAT::CONFIG_MISSING) {
         return "\x1b[38;2;215;95;95mCONFIG_MISSING\x1b[0m";
     }
+    // Eine RESSOURCE ausserhalb der Registry steht nicht zur Verfuegung: Datei, Socket, Arena,
+    // Puffer, Uhr. Nicht COMPONENT_MISSING (Entity-Aussage) und nicht CONFIG_MISSING (nicht
+    // gesetzter Wert) - hier IST etwas konfiguriert und benannt, es laesst sich nur nicht
+    // belegen. HIERHER GEHOERT DIE FEHLGESCHLAGENE SLOT-VERGABE EINES VERWALTERS OHNE
+    // OBERGRENZE, und das ist die Gegenrichtung der Bedingung unter CAPACITY_REACHED: der
+    // Ungueltig-Wert der Kennung sagt 'nicht zu haben', nie 'voll'. ZUERST DER GEGENFALL,
+    // damit niemand pauschal hierher umschreibt: fuehrt der aufgerufene Verwalter einen ECHTEN
+    // Deckel - ein festes Array, ein Kapazitaetsfeld, eine full()-Abfrage -, dann gilt
+    // CAPACITY_REACHED und NICHT diese Kategorie; ReplicaSklPrivResourceManager und das feste
+    // Staging-Array in ReplicaCapNodeRowSystem sind die belegten Beispiele dafuer. Erst wo die
+    // Vergabe KEINEN Fehlerpfad traegt - gemessen an ReplicationPstResourceManager und
+    // ReplicationLodResourceManager -, ist diese Kategorie die richtige. Die Pruefung ist in
+    // beiden Richtungen dieselbe und steht ausgeschrieben unter CAPACITY_REACHED.
     if (cat == ERR::CAT::RESOURCE_UNAVAIL) {
         return "\x1b[38;2;215;95;95mRESOURCE_UNAVAIL\x1b[0m";
     }
+    // Ein AUTORISIERUNGSENTSCHEID auf Fehlerebene: der Aufrufer ist bekannt, die Anfrage
+    // wohlgeformt, und sie wird abgelehnt. Bewusst NICHT WRN::CAT::INPUT_REJECTED - eine
+    // Warnung faellt aus jedem ERR-Filter heraus.
     if (cat == ERR::CAT::ACCESS_DENIED) {
         return "\x1b[38;2;215;95;95mACCESS_DENIED\x1b[0m";
     }
+    // Der ZUSTAND erlaubt die Arbeit nicht - und nichts ist kaputt, unerreichbar oder
+    // ungesetzt. Der Hilfetext sagt bewusst NICHTS ueber den Kontrollfluss: dieser Zustand ist
+    // oft der gewollte. BEDINGUNG, und sie faellt genau dort, wo die Kategorie am haeufigsten
+    // falsch gewaehlt wird: der Hilfetext schliesst 'unerreichbar' AUSDRUECKLICH aus, und eine
+    // fehlgeschlagene Slot-Vergabe IST unerreichbar - dort faellt die Kategorie aus und
+    // RESOURCE_UNAVAIL gilt. Wer WORK_PRECLUDED nach einer Vergabe setzt, hat den eigenen
+    // Hilfetext gegen sich. Die ausgeschriebene Pruefung steht unter CAPACITY_REACHED und gilt
+    // hier gleichermassen.
     if (cat == ERR::CAT::WORK_PRECLUDED) {
         return "\x1b[38;2;215;95;95mWORK_PRECLUDED\x1b[0m";
     }
+    // Eine EINGABE ueberschreitet eine feste Obergrenze und wird als Ganzes verworfen. Nicht
+    // RESOURCE_UNAVAIL (dort ist die Aufnahme erschoepft, hier war sie nie zustaendig) und
+    // nicht WRN::CAT::INPUT_REJECTED - der Vorgang endet, statt weiterzulaufen.
     if (cat == ERR::CAT::INPUT_TOO_LARGE) {
         return "\x1b[38;2;215;95;95mINPUT_TOO_LARGE\x1b[0m";
     }
+    // Ein VORGANG am Wirtssystem ist gescheitert: anlegen, schreiben, ersetzen, ein fremdes
+    // Programm starten. DERSELBE VORGANG AUF EINEM FREMDEN WIRTSSYSTEM gehoert ebenfalls
+    // hierher: eine Einheit, die den Schritt fuer uns ausgefuehrt hat, meldet seinen
+    // Fehlschlag zurueck. Der Rundlauf selbst ist dabei GELUNGEN - die Gegenseite war
+    // erreichbar und hat geantwortet; gescheitert ist, was an ihrem Ende lief. Deshalb nicht
+    // RESOURCE_UNAVAIL: dort kommt keine Antwort. Abgrenzung: CONFIG_MISSING heisst, es wurde
+    // nie etwas versucht; RESOURCE_UNAVAIL heisst, die Ressource existiert und ist
+    // unerreichbar. Hier war alles gesetzt, der Vorgang selbst ist fehlgeschlagen. Auf
+    // WRN-Ebene gibt es dieselbe Kategorie fuer den Fall, dass der Durchlauf danach
+    // weitergeht.
     if (cat == ERR::CAT::HOST_OP_FAILED) {
         return "\x1b[38;2;215;95;95mHOST_OP_FAILED\x1b[0m";
     }
+    // Eine EINGABE endet vor ihrem angekuendigten Ende: ein Rahmen ist zu kurz, ein Feld fehlt
+    // hinten. Die Spiegelhaelfte von INPUT_TOO_LARGE - dort ueberschreitet die Eingabe eine
+    // Obergrenze, hier erreicht sie ihre Untergrenze nicht. Nicht VALUE_INVALID: der Wert ist
+    // nicht falsch, er ist unvollstaendig, und es gibt keinen Teilerfolg.
     if (cat == ERR::CAT::INPUT_TRUNCATED) {
         return "\x1b[38;2;215;95;95mINPUT_TRUNCATED\x1b[0m";
     }
+    // Der VERWEIS ist wohlgeformt, das Ziel existiert nicht. ERR-Entsprechung von
+    // WRN::CAT::REFERENCE_UNRESOLVED: dieselbe Sache, aber der Vorgang endet hier statt
+    // weiterzulaufen. Wie dort ist es eine NACHGELAGERTE Beobachtung - der Hilfetext schickt
+    // den Leser zum ERZEUGER der Adresse, nicht zum Aufrufer.
     if (cat == ERR::CAT::REFERENCE_UNRESOLVED) {
         return "\x1b[38;2;215;95;95mREFERENCE_UNRESOLVED\x1b[0m";
     }
+    // Ein fremder Aufrufer hat etwas Unbedienbares geschickt, und der Vorgang ENDET.
+    // ERR-Entsprechung von WRN::CAT::INPUT_REJECTED: dieselbe Sache, anderer Ernstfall - dort
+    // laeuft der Durchlauf weiter, hier nicht. Wer Ablehnungen im Fehlerstrom auswerten will,
+    // findet sie nur hier; eine Warnung faellt aus jedem ERR-Filter.
     if (cat == ERR::CAT::INPUT_REJECTED) {
         return "\x1b[38;2;215;95;95mINPUT_REJECTED\x1b[0m";
     }
+    // Eine Aufnahme ist VOLL und nimmt nichts mehr an, und der Vorgang endet. Abgrenzung zu
+    // RESOURCE_UNAVAIL: dort ist die Ressource nicht zu belegen, hier ist sie belegt und
+    // arbeitet - ihr fehlt nur der Platz. Die WRN-Haelfte gilt, wo etwas verworfen wird und
+    // der Durchlauf weitergeht. BEDINGUNG - OHNE SIE IST DIE KATEGORIE EINE BEHAUPTUNG UEBER
+    // FREMDEN CODE: sie gilt NUR, wo der AUFGERUFENE Verwalter selbst eine Obergrenze FUEHRT -
+    // ein festes Array, ein Kapazitaetsfeld, eine full()-Abfrage. Eine Vergabe OHNE Fehlerpfad
+    // kann nicht voll sein; ihr Ungueltig-Wert heisst 'nicht zu haben', und dort gilt
+    // RESOURCE_UNAVAIL. Gemessen: ReplicationPstResourceManager und
+    // ReplicationLodResourceManager fuehren seit dem Umbau auf mitwachsende Maps KEINE
+    // Obergrenze mehr, ihre Vergabe traegt keinen Fehlerpfad - jede CAPACITY_REACHED-Zeile
+    // ueber ihnen ist falsch. GEGENBEISPIELE, DIE DIE KATEGORIE BEHALTEN, und sie sind
+    // wichtiger als die Regel: ReplicaSklPrivResourceManager (feste Tabelle mit TABLE_MASK)
+    // und das feste Staging-Array in ReplicaCapNodeRowSystem. Pauschal zu ersetzen ist
+    // derselbe Fehler wie die falsche Kategorie, nur in der Gegenrichtung. DER LEHRFALL:
+    // replica_skl_sign_sys.cpp traegt beide Faelle in DERSELBEN Funktion, wenige Zeilen
+    // auseinander, mit fast demselben Kommentar - der Signoff gegen die feste Tabelle behaelt
+    // die Kategorie, die Slot-Vergabe daneben nicht. Kein Tor kann das trennen, weil beide
+    // Zeilen gleich aussehen; nur wer den aufgerufenen Verwalter aufschlaegt, entscheidet
+    // richtig.
     if (cat == ERR::CAT::CAPACITY_REACHED) {
         return "\x1b[38;2;215;95;95mCAPACITY_REACHED\x1b[0m";
     }
+    // Ein BEZEICHNER ist unbekannt: ein Name, ein Schluessel, eine Kennung, die in keinem
+    // Register steht. Abgrenzung zu REFERENCE_UNRESOLVED: dort ist der Verweis wohlgeformt und
+    // sein ZIEL fehlt, hier ist schon der Bezeichner selbst nicht bekannt. Und nicht
+    // CONFIG_MISSING: dort ist ein Wert nicht GESETZT, hier ist er gesetzt und nicht
+    // AUFLOESBAR.
     if (cat == ERR::CAT::UNKNOWN_ID) {
         return "\x1b[38;2;215;95;95mUNKNOWN_ID\x1b[0m";
     }
+    // Ein GELIEHENER Puffer reicht nicht. Der Unterschied zu allen drei Nachbarn ist der
+    // EIGENTUEMER: INPUT_TOO_LARGE misst die Eingabe gegen eine EIGENE Obergrenze,
+    // CAPACITY_REACHED eine EIGENE volle Aufnahme, RESOURCE_UNAVAIL eine nicht belegbare
+    // Ressource. Hier gehoert die Grenze dem AUFRUFER, und nur er kann sie aendern - deshalb
+    // schickt der Hilfetext dorthin.
     if (cat == ERR::CAT::BUFFER_TOO_SMALL) {
         return "\x1b[38;2;215;95;95mBUFFER_TOO_SMALL\x1b[0m";
     }
+    // Zwei Seiten erwarten verschiedene Staende: ein Modul-ABI, ein Rahmenformat, ein
+    // Manifest. Nicht VALUE_INVALID - beide Werte sind fuer sich gueltig, nur zueinander
+    // nicht. Die Zeile traegt IMMER beide Angaben; eine allein macht den Befund unbrauchbar,
+    // weil nicht erkennbar ist, welche Seite nachzuziehen ist.
     if (cat == ERR::CAT::VERSION_MISMATCH) {
         return "\x1b[38;2;215;95;95mVERSION_MISMATCH\x1b[0m";
     }
+    // Spiegel von WRN::CAT::VALUE_OUT_OF_RANGE auf Fehlerebene: der Wert existiert und liegt
+    // ausserhalb seines gueltigen Bereichs, und der Vorgang ENDET. Auf der Warnebene
+    // entscheidet der Aufrufer noch zwischen klemmen, ablehnen und behalten; hier ist die
+    // Entscheidung gefallen.
     if (cat == ERR::CAT::VALUE_OUT_OF_RANGE) {
         return "\x1b[38;2;215;95;95mVALUE_OUT_OF_RANGE\x1b[0m";
     }
+    // Spiegel von WRN::CAT::VALUE_NEGATIVE auf Fehlerebene. Eigene Kategorie und nicht
+    // VALUE_OUT_OF_RANGE, weil ein negativer Wert fast immer eine andere Ursache hat als ein
+    // zu grosser: eine Unterlaufrechnung statt einer verletzten Obergrenze.
     if (cat == ERR::CAT::VALUE_NEGATIVE) {
         return "\x1b[38;2;215;95;95mVALUE_NEGATIVE\x1b[0m";
     }
+    // Spiegel von WRN::CAT::VALUE_INVALID auf Fehlerebene: der Wert ist vorhanden und
+    // semantisch ungueltig, und der Vorgang endet. Nicht VERSION_MISMATCH - dort sind beide
+    // Werte fuer sich gueltig und nur zueinander nicht.
     if (cat == ERR::CAT::VALUE_INVALID) {
         return "\x1b[38;2;215;95;95mVALUE_INVALID\x1b[0m";
     }
@@ -560,75 +676,179 @@ const char* get_cat_suffix(uint32_t cat) {
 }
 
 const char* get_wrn_cat_name(uint32_t cat) {
+    // Die ausdrueckliche Nicht-Aussage, Spiegel von ERR::CAT::UNKNOWN. NICHT der Rueckfall -
+    // den traegt seit dem Hash-Umbau die laute Marke im Getter.
     if (cat == WRN::CAT::UNKNOWN) {
         return "\x1b[38;2;215;95;95mUNKNOWN\x1b[0m";
     }
+    // KEINE Zusage ueber den Kontrollfluss. Der frueher hier stehende Satz behauptete, was
+    // NACH der Meldung geschieht - eine Bereichspruefung, die NICHT klemmt, fiel dadurch
+    // faelschlich durch.
     if (cat == WRN::CAT::VALUE_OUT_OF_RANGE) {
         return "\x1b[38;2;215;95;95mVALUE_OUT_OF_RANGE\x1b[0m";
     }
+    // Dieselbe Klasse wie VALUE_OUT_OF_RANGE: die Kategorie stellt den ZUSTAND fest, der
+    // Aufrufer entscheidet die Reaktion.
     if (cat == WRN::CAT::VALUE_NEGATIVE) {
         return "\x1b[38;2;215;95;95mVALUE_NEGATIVE\x1b[0m";
     }
+    // Wert vorhanden, semantisch ungueltig.
     if (cat == WRN::CAT::VALUE_INVALID) {
         return "\x1b[38;2;215;95;95mVALUE_INVALID\x1b[0m";
     }
+    // Foreign caller sent something unserviceable. Der Durchlauf geht weiter - das ist der
+    // einzige Unterschied zu ERR::CAT::INPUT_REJECTED.
     if (cat == WRN::CAT::INPUT_REJECTED) {
         return "\x1b[38;2;215;95;95mINPUT_REJECTED\x1b[0m";
     }
+    // Eine Aufnahme ist VOLL und hat deshalb etwas verworfen. Abgrenzung zu RESOURCE_UNAVAIL:
+    // die Ressource ist erreichbar und arbeitet - sie hat nur keinen Platz mehr. Der
+    // Unterschied steht in zwei benachbarten Zeilen einer Datei (edge_keycard_routes.cpp:
+    // 'queue unavailable' gegen 'queue full'). DIESELBE BEDINGUNG WIE AUF DER ERR-EBENE, und
+    // sie ist hier genauso bindend: die Kategorie gilt NUR, wo der aufgerufene Verwalter
+    // selbst eine Obergrenze FUEHRT. Eine Vergabe ohne Fehlerpfad kann nicht voll sein - dort
+    // gilt RESOURCE_UNAVAIL. Die ausgeschriebene Fassung mit Belegen und Gegenbeispielen steht
+    // unter ERR::CAT::CAPACITY_REACHED und gilt fuer beide Haelften.
     if (cat == WRN::CAT::CAPACITY_REACHED) {
         return "\x1b[38;2;215;95;95mCAPACITY_REACHED\x1b[0m";
     }
+    // Wie ERR::CAT::WORK_PRECLUDED, aber auf Warnebene: der Durchlauf geht weiter. Ein
+    // Lebenszyklus-Waechter ('existiert bereits, ueberspringe') gehoert hierher, nicht in den
+    // Fehlerstrom - nichts ist kaputt. UND DIESELBE BEDINGUNG: der Hilfetext schliesst
+    // 'unerreichbar' aus, eine fehlgeschlagene Slot-Vergabe ist genau das, und dort gilt
+    // RESOURCE_UNAVAIL statt dieser Kategorie.
     if (cat == WRN::CAT::WORK_PRECLUDED) {
         return "\x1b[38;2;215;95;95mWORK_PRECLUDED\x1b[0m";
     }
+    // Der VERWEIS ist wohlgeformt, das Ziel existiert in der aktuellen Struktur nicht. Nicht
+    // COMPONENT_MISSING (die Entity ist vollstaendig), nicht INVALID_ENTITY (nichts ist
+    // zerstoert), nicht VALUE_INVALID (die Adresse ist gueltig, sie benennt nur nichts). Es
+    // ist eine NACHGELAGERTE Beobachtung - der Hilfetext schickt den Leser deshalb zum
+    // ERZEUGER der Adresse, nicht zum Aufrufer.
     if (cat == WRN::CAT::REFERENCE_UNRESOLVED) {
         return "\x1b[38;2;215;95;95mREFERENCE_UNRESOLVED\x1b[0m";
     }
+    // Wie ERR::CAT::HOST_OP_FAILED, aber der Durchlauf geht weiter: ein Waechter liess sich
+    // nicht scharfschalten, eine Datei nicht rotieren, ein Hilfsprogramm nicht starten - und
+    // das System arbeitet mit eingeschraenkter Faehigkeit weiter. Auch der Vorgang auf einem
+    // FREMDEN Wirtssystem zaehlt hierher, wenn die ausfuehrende Einheit ANTWORTET und ihre
+    // Antwort einen Fehlschlag meldet: der Bittsteller hat dann ein vollstaendiges negatives
+    // Ergebnis statt gar keines, die Arbeitseinheit wird fertig. Der Unterschied zur
+    // ERR-Haelfte ist NICHT die Schwere des Fehlschlags, sondern ob danach noch etwas
+    // passiert.
     if (cat == WRN::CAT::HOST_OP_FAILED) {
         return "\x1b[38;2;215;95;95mHOST_OP_FAILED\x1b[0m";
     }
+    // Eine OPTIONALE Eingabe fehlt, und der Vorgang laeuft mit reduziertem Ergebnis WEITER.
+    // Die Abgrenzung ist scharf gegen alle vier Nachbarn: WORK_PRECLUDED heisst, die Arbeit
+    // findet NICHT statt - hier findet sie statt. INPUT_REJECTED heisst, die Anfrage wird
+    // abgewiesen - hier wird sie angenommen. INPUT_TRUNCATED heisst, die Eingabe bricht ab und
+    // liefert keinen Teilerfolg - hier ist sie vollstaendig, nur ein optionaler Teil fehlt.
+    // VALUE_INVALID heisst, ein Wert ist ungueltig - hier ist seine Abwesenheit erlaubt.
     if (cat == WRN::CAT::INPUT_INCOMPLETE) {
         return "\x1b[38;2;215;95;95mINPUT_INCOMPLETE\x1b[0m";
     }
+    // Wie ERR::CAT::RESOURCE_UNAVAIL, aber der Durchlauf geht weiter. Die Abgrenzung zu
+    // WRN::CAT::HOST_OP_FAILED ist die scharfe: dort ist ein Vorgang GESCHEITERT (der Aufruf
+    // lief und schlug fehl), hier war die Ressource von vornherein nicht da. Ein leeres
+    // Verzeichnis, das es nicht gibt, ist kein gescheitertes opendir - es ist ein fehlendes
+    // Ziel. DIESELBE BEDINGUNG WIE AUF DER ERR-EBENE, und sie zeigt in die Gegenrichtung von
+    // CAPACITY_REACHED: hierher gehoert die fehlgeschlagene Slot-Vergabe eines Verwalters OHNE
+    // Obergrenze, weil der Ungueltig-Wert der Kennung 'nicht zu haben' bedeutet und nicht
+    // 'voll'. ZUERST DER GEGENFALL: fuehrt der aufgerufene Verwalter einen ECHTEN Deckel -
+    // festes Array, Kapazitaetsfeld, full()-Abfrage -, gilt WRN::CAT::CAPACITY_REACHED und
+    // NICHT diese Kategorie; ReplicaSklPrivResourceManager und das feste Staging-Array in
+    // ReplicaCapNodeRowSystem sind die belegten Beispiele. Erst wo die Vergabe KEINEN
+    // Fehlerpfad traegt - ReplicationPstResourceManager, ReplicationLodResourceManager -, ist
+    // diese Kategorie richtig. Die ausgeschriebene Pruefung steht unter
+    // ERR::CAT::CAPACITY_REACHED und gilt fuer beide Ebenen.
     if (cat == WRN::CAT::RESOURCE_UNAVAIL) {
         return "\x1b[38;2;215;95;95mRESOURCE_UNAVAIL\x1b[0m";
     }
+    // Wie ERR::CAT::BUFFER_TOO_SMALL, aber der Durchlauf geht weiter - abgeschnitten oder
+    // uebersprungen statt abgebrochen. Die Grenze gehoert dem AUFRUFER: das unterscheidet die
+    // Kategorie von INPUT_TOO_LARGE (eigene Obergrenze) und CAPACITY_REACHED (eigene volle
+    // Aufnahme), und nur deshalb schickt der Hilfetext den Leser nach draussen.
     if (cat == WRN::CAT::BUFFER_TOO_SMALL) {
         return "\x1b[38;2;215;95;95mBUFFER_TOO_SMALL\x1b[0m";
     }
+    // Eine wirksame ABWEICHUNG vom Vorgabewert, gemeldet damit sie in einer Fehlersuche nicht
+    // uebersehen wird. Nichts ist kaputt: der Wert ist gueltig (also kein VALUE_INVALID), er
+    // wurde angenommen (also kein INPUT_REJECTED), und es fehlt nichts (also kein
+    // CONFIG_MISSING). Die Zeile existiert, weil eine Abweichung, die NICHT gemeldet wird,
+    // jede spaetere Messung still verfaelscht - wer eine Taktrate misst, waehrend eine
+    // DEV-Ueberschreibung sie setzt, misst die Ueberschreibung.
     if (cat == WRN::CAT::OVERRIDE_ACTIVE) {
         return "\x1b[38;2;215;95;95mOVERRIDE_ACTIVE\x1b[0m";
     }
+    // Wie ERR::CAT::HUB_NOT_FOUND, aber der Durchlauf geht weiter. Der haeufige Fall ist ein
+    // Leser, der vor seinem Erzeuger laeuft und beim naechsten Takt bedient wird - als Fehler
+    // gemeldet fuellt er den Fehlerstrom mit einem Zustand, der sich von selbst aufloest.
     if (cat == WRN::CAT::HUB_NOT_FOUND) {
         return "\x1b[38;2;215;95;95mHUB_NOT_FOUND\x1b[0m";
     }
+    // Wie ERR::CAT::HUB_GLOBAL_MISSING, aber der Durchlauf geht weiter. KEIN Zusatz im suffix:
+    // der Zusatz ' (GLOBAL)' gehoert der ERR-Haelfte, weil er dort aus dem Formatstring einer
+    // bestimmten Stelligkeit stammt - hier waere er eine Nachahmung ohne Herkunft.
     if (cat == WRN::CAT::HUB_GLOBAL_MISSING) {
         return "\x1b[38;2;215;95;95mHUB_GLOBAL_MISSING\x1b[0m";
     }
+    // Wie ERR::CAT::COMPONENT_MISSING, aber die Schleife laeuft weiter. Der Unterschied ist
+    // wichtiger als er aussieht: eine Entity ohne Component in einer Iteration ueber tausend
+    // ist ein uebersprungener Einzelfall, kein gescheiterter Durchlauf. Nicht zu verwechseln
+    // mit einer WIRKLICH optionalen Component - deren Abwesenheit ist erlaubt und wird gar
+    // nicht gemeldet.
     if (cat == WRN::CAT::COMPONENT_MISSING) {
         return "\x1b[38;2;215;95;95mCOMPONENT_MISSING\x1b[0m";
     }
+    // Wie ERR::CAT::MANAGER_ABSENT, aber der Durchlauf geht weiter. Beide Ebenen werden
+    // gebraucht und die Wahl haengt am Kontrollfluss der Fundstelle, nicht an ihrer Schwere:
+    // wo das System hinter der Pruefung zurueckkehrt, ist es ERR, wo es die naechste Einheit
+    // nimmt und weitermacht, ist es WRN. Die Abgrenzung gegen COMPONENT_MISSING,
+    // INVALID_ENTITY, REFERENCE_UNRESOLVED, RESOURCE_UNAVAIL und HUB_NOT_FOUND steht
+    // ausgeschrieben unter ERR::CAT::MANAGER_ABSENT und gilt hier unveraendert.
     if (cat == WRN::CAT::MANAGER_ABSENT) {
         return "\x1b[38;2;215;95;95mMANAGER_ABSENT\x1b[0m";
     }
+    // Wie ERR::CAT::INVALID_ENTITY, aber der Durchlauf geht weiter. Nicht
+    // REFERENCE_UNRESOLVED: dort ist der Verweis wohlgeformt und sein Ziel fehlt, hier ist
+    // schon die Kennung selbst ungueltig.
     if (cat == WRN::CAT::INVALID_ENTITY) {
         return "\x1b[38;2;215;95;95mINVALID_ENTITY\x1b[0m";
     }
+    // Wie ERR::CAT::SCHEDULE_ORDER, aber der Takt laeuft weiter. Der Regelfall auf dieser
+    // Ebene ist eine Reihenfolge, die nur NICHT ZUGESICHERT ist: ohne run_after-Kante ordnet
+    // die Registrierungsreihenfolge, und das haelt in der Praxis, bis jemand eine
+    // Registrierung verschiebt.
     if (cat == WRN::CAT::SCHEDULE_ORDER) {
         return "\x1b[38;2;215;95;95mSCHEDULE_ORDER\x1b[0m";
     }
+    // Wie ERR::CAT::CONFIG_MISSING, aber der Durchlauf geht weiter, weil ein Vorgabewert
+    // einspringt. Die Zeile ist gerade DANN wichtig: ein stiller Vorgabewert sieht in jeder
+    // spaeteren Messung wie eine bewusste Einstellung aus.
     if (cat == WRN::CAT::CONFIG_MISSING) {
         return "\x1b[38;2;215;95;95mCONFIG_MISSING\x1b[0m";
     }
+    // Wie ERR::CAT::INPUT_TOO_LARGE, aber der Durchlauf geht weiter. Die Abgrenzung zu
+    // BUFFER_TOO_SMALL ist der EIGENTUEMER der Grenze: hier ist es die eigene dokumentierte
+    // Obergrenze, dort ein vom Aufrufer gelieferter Puffer.
     if (cat == WRN::CAT::INPUT_TOO_LARGE) {
         return "\x1b[38;2;215;95;95mINPUT_TOO_LARGE\x1b[0m";
     }
+    // Wie ERR::CAT::INPUT_TRUNCATED, aber der Durchlauf geht weiter. Der typische Ort ist eine
+    // Empfangsschleife: ein zu kurzer Rahmen wird verworfen, die Verbindung bleibt bestehen
+    // und der naechste Rahmen wird gelesen.
     if (cat == WRN::CAT::INPUT_TRUNCATED) {
         return "\x1b[38;2;215;95;95mINPUT_TRUNCATED\x1b[0m";
     }
+    // Wie ERR::CAT::UNKNOWN_ID, aber der Durchlauf geht weiter. Haeufig beim Einlesen fremder
+    // Daten: ein unbekannter Schluessel wird uebersprungen, die uebrigen werden verarbeitet.
     if (cat == WRN::CAT::UNKNOWN_ID) {
         return "\x1b[38;2;215;95;95mUNKNOWN_ID\x1b[0m";
     }
+    // Wie ERR::CAT::VERSION_MISMATCH, aber der Durchlauf geht weiter, meist mit
+    // eingeschraenkter Faehigkeit. Wie dort traegt die Zeile IMMER beide Angaben - eine allein
+    // sagt nicht, welche Seite nachzuziehen ist.
     if (cat == WRN::CAT::VERSION_MISMATCH) {
         return "\x1b[38;2;215;95;95mVERSION_MISMATCH\x1b[0m";
     }

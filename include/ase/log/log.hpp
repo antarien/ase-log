@@ -11,30 +11,39 @@
  * ASE CORE INFRASTRUCTURE HEADER
  *
  * @file        log.hpp
- * @brief       ECS-based logging system with CLI support
- * @description Provides logging infrastructure for both ECS-based applications
- *              and CLI tools. LogSystem is an ECS System that initializes on_start().
- *              CLI tools can use init() for standalone initialization.
+ * @brief       The log call of the whole tree: plain, formatted and categorized lines
+ * @description Provides the inline log functions every unit calls (info, warn, error, debug,
+ *              trace, critical) in their plain, formatted and categorized forms. They write
+ *              through the server logger the LogResourceManager holds; the system that opens its
+ *              sinks in a running app is LogSystem (ase/log/systems/log_sys.hpp), the entries for
+ *              a program without an ECS world stand in ase/log/log_lifecycle.hpp.
  *
  * @module      ase-log
  * @layer       1 (Core)
  * @design      DSGN_021
  * @category    error/logging
+ * @usecase     usecase:100362 - write a log line
  * @created     2024-01-01
- * @modified    2025-01-21
- * @version     2.0.0
+ * @modified    2026-10-19
+ * @version     2.3.0
+ *
+ * THE CHECK OF A CALL STANDS HERE, THE FILTER CONTROL DOES NOT. Every line asks the filter
+ * whether it may be written, so the level bits, the location key and the declarations of the
+ * two checks belong to the header every caller holds. The filter state, the category mask and
+ * the CLI control (parse_cli_filter, set_level_mask, block_category, ...) stand in
+ * ase/log/log_filter.hpp and the generated log_cat_gen.hpp; a unit that sets a filter includes
+ * log_filter.hpp itself, and a change there rebuilds those units, not every unit that logs.
  *
  * LAYER RULES:
  *   Layer 0 (Foundation): NO dependencies on other ASE modules (only std::)
  *   Layer 1 (Core):       May depend on Layer 0 only
  *
  * USAGE:
- *   // ECS-based apps (LogSystem auto-initializes):
- *   ase::ecs::World world;
- *   world.start();  // LogSystem initializes here
+ *   // ECS-based apps (LogModule registers LogSystem, which opens the sinks):
+ *   app.add_module<ase::log::LogModule>();
  *   ase::log::info("Server started on port {}", 8090);
  *
- *   // CLI tools (manual initialization):
+ *   // CLI tools (manual initialization, ase/log/log_lifecycle.hpp):
  *   ase::log::init("ase-codegen");
  *   ase::log::info("Processing module: {}", module_name);
  *   ase::log::shutdown();
@@ -60,46 +69,25 @@
  * [ ] API stable (changes require version bump)
  */
 
-#include <ase/ecs/system.hpp>
-#include <ase/containers/vector.hpp>
-#include <ase/log/log_filter.hpp>
 #include <ase/log/log_err_cat_gen.hpp>
 #include <spdlog/logger.h>
-// DER DACHHEADER `spdlog/spdlog.h` IST AM 2026-08-31 ENTFALLEN — der Schnitt, den der Absatz
-// weiter unten noch als "naechsten" ankuendigte. Gebraucht werden hier VIER Symbole, und alle
-// vier stehen in `logger.h` bzw. dem `common.h`, das es mitbringt:
-//     spdlog::logger            die beiden Slot-Referenzen und LogSystem::logger()
+// Gebraucht werden hier VIER Symbole der Bibliothek, und alle vier stehen in `logger.h` bzw. dem
+// `common.h`, das es mitbringt:
+//     spdlog::logger            die beiden Slot-Referenzen
 //     spdlog::sinks::sink       der Ringpuffer-Slot
 //     spdlog::format_string_t   die neun log_fmt-Traeger
 //     spdlog::level::level_enum set_level
 //
-// WAS DER DACHHEADER DARUEBER HINAUS MITBRACHTE: die Logger-REGISTRY samt globaler API
+// WAS DER DACHHEADER DARUEBER HINAUS MITBRAECHTE: die Logger-REGISTRY samt globaler API
 // (register_logger, shutdown, die synchronous_factory, die freien Logfunktionen). Diese Datei
 // ruft davon NICHTS — die Registry-Aufrufe stehen in log_sys.cpp, und die bindet ihren Header
 // selbst ein. Ein Dachheader liefert, was die Bibliothek anzubieten HAT, nicht was der Aufrufer
 // BRAUCHT; genau darin liegt sein Preis.
 //
-// WAS DAS WERT IST: dieser Header steht in 2224 Uebersetzungseinheiten, und der Preis fiel nicht
-// bei Aenderungen an, sondern bei JEDEM einzelnen Bau.
-//
-// ZWEI SENKEN-HEADER SIND AM 2026-08-31 ENTFALLEN, und das war der erste Ertrag des
-// Lebenszyklus-Schnitts. Hier standen zusaetzlich:
-//     #include <spdlog/sinks/stdout_color_sinks.h>
-//     #include <spdlog/sinks/basic_file_sink.h>
-// Gebraucht hat sie einzig das `inline init()`, das jetzt in src/log_standalone.cpp steht. Nach
-// dem Umzug nannte diese Datei kein einziges Symbol daraus mehr — gemessen: die beiden Namen
-// kamen nur noch in ihren EIGENEN Include-Zeilen vor.
-//
-// WAS DAS WERT IST: dieser Header steht in 2224 Uebersetzungseinheiten. Jede von ihnen hat bei
-// JEDER Uebersetzung zwei Senken-Baeume mitgelesen, die sie nie benutzt — der Preis fiel nicht
-// bei Aenderungen an, sondern bei jedem einzelnen Bau.
-//
-// GEPRUEFT, dass sich niemand auf die durchgereichte Lieferung verlaesst: die vier Dateien im
-// Baum, die eine dieser Senken nennen (ase-codegen/console_output.hpp, log.hpp, log_standalone.cpp,
-// log_sys.cpp), binden den passenden Header jeweils SELBST ein.
-//
-// `spdlog/spdlog.h` bleibt und kann hier noch nicht weg: der Aufrufpfad ist inline und ruft
-// `logger()->info(fmt, args...)` direkt. Ihn abzuloesen ist der naechste Schnitt, nicht dieser.
+// Die Senken-Header stehen ebenso bei ihren Aufrufern (log_standalone.cpp, log_sys.cpp, die
+// Fabriken in log_resource_manager.cpp): dieser Header steht in fast jeder Uebersetzungseinheit
+// jedes Tiers, und der Preis faellt nicht bei Aenderungen an, sondern bei JEDEM einzelnen Bau.
+#include <cstdint>
 #include <memory>
 #include <source_location>
 #include <string>
@@ -107,20 +95,115 @@
 
 namespace ase::log {
 
-// ============================================================================
-// LogSystem - The Logger as an ECS System
-// ============================================================================
+// LEVEL BITS
+//
+// The one home of the level bitmask. The filter state (filter::level_mask() in log_cat_gen.cpp)
+// holds an OR of these bits, the CLI filter sets them, and every check below tests one of them.
+namespace level {
+constexpr uint8_t trace    = 0x01u;  ///< Trace level
+constexpr uint8_t debug    = 0x02u;  ///< Debug level
+constexpr uint8_t info     = 0x04u;  ///< Info level
+constexpr uint8_t warn     = 0x08u;  ///< Warning level
+constexpr uint8_t error    = 0x10u;  ///< Error level
+constexpr uint8_t critical = 0x20u;  ///< Critical level
+constexpr uint8_t all      = 0x3Fu;  ///< All levels enabled
+}  // namespace level
 
-// Structured log entry for /api/logs endpoint (ringbuffer output)
+// THE TWO CHECKS OF THE FILTER (defined in log_cat_gen.cpp)
+//
+// O(1) cached check for file + function (~12 cycles on the hot path). The location key is
+// computed at the CALL SITE (loc_key below, constexpr-folded), not inside the check: hashing the
+// two strings per call would multiply the fast path the cache exists to avoid. A key taken from
+// the two POINTERS by reinterpret_cast is forbidden and unstable across translation units, where
+// identical __FILE__ literals may sit at different addresses.
+namespace filter {
+bool should_log_loc(uint8_t level, const char* file, const char* func, uint64_t key);
+
+/// O(1) cached check for a client line: the location check plus the client masks
+bool should_log_client_loc(uint8_t level, const char* file, const char* func, uint64_t key,
+                           uint64_t client_bit);
+}  // namespace filter
+
+/**
+ * @brief Location key for the filter cache, computed at COMPILE time.
+ *
+ * THE KEY HASHES THE CONTENT OF THE TWO STRINGS, NEVER THEIR ADDRESSES. An address key needs a
+ * reinterpret_cast, which is forbidden (REINTERPRET_CAST_FORBIDDEN, WRFL_ASE_FLYWEIGHT.md), and
+ * it is not stable: identical __FILE__ literals in different translation units may live at
+ * different addresses, so one source line would occupy several cache slots while two different
+ * lines could collide.
+ *
+ * Hashing the content costs nothing at run time. Every caller passes strings that are call-site
+ * constants - the log_fmtN constructors take them from __builtin_FILE()/__builtin_FUNCTION()
+ * defaults, and std::source_location::current() is fixed at the call site too - so this folds
+ * to an immediate.
+ *
+ * THE SEPARATOR IS NOT COSMETIC: without it ("ab","c") and ("a","bc") hash identically.
+ *
+ * @param file The caller's source file name
+ * @param func The caller's function name
+ * @return The FNV-1a key of both strings with a separator between them
+ */
+[[nodiscard]] constexpr uint64_t loc_key(const char* file, const char* func) noexcept {
+    constexpr uint64_t kOffsetBasis = 14695981039346656037ULL;
+    constexpr uint64_t kPrime       = 1099511628211ULL;
+    constexpr uint64_t kSeparator   = 0x1FULL;  // unit separator, occurs in neither string
+
+    uint64_t hash = kOffsetBasis;
+    for (const char* p = file; p != nullptr && *p != '\0'; ++p) {
+        hash ^= static_cast<uint64_t>(static_cast<unsigned char>(*p));
+        hash *= kPrime;
+    }
+    hash ^= kSeparator;
+    hash *= kPrime;
+    for (const char* p = func; p != nullptr && *p != '\0'; ++p) {
+        hash ^= static_cast<uint64_t>(static_cast<unsigned char>(*p));
+        hash *= kPrime;
+    }
+    return hash;
+}
+
+/**
+ * @brief Whether a line of this level from this location passes the filter.
+ * @param lvl Log level (level::trace, level::info, ...)
+ * @param loc Source location (defaults to the caller's location)
+ * @return true if the line is written, false if it is filtered out
+ *
+ * The categories come from BOTH the source file name AND the function name, which enables
+ * lifecycle-phase filtering (+TICK, -START, +STOP).
+ */
+[[nodiscard]] inline bool should_log_loc(
+    uint8_t lvl,
+    const std::source_location& loc = std::source_location::current()) noexcept {
+    return filter::should_log_loc(lvl, loc.file_name(), loc.function_name(),
+                                  loc_key(loc.file_name(), loc.function_name()));
+}
+
+/**
+ * @brief Whether a client line passes the filter.
+ * @param lvl Log level (level::trace, level::info, ...)
+ * @param client_bit Client bitmask (1ULL << client_id, 0 = server log, always passes)
+ * @param loc Source location (defaults to the caller's location)
+ * @return true if the line is written, false if it is filtered out
+ */
+[[nodiscard]] inline bool should_log_client(
+    uint8_t lvl, uint64_t client_bit,
+    const std::source_location& loc = std::source_location::current()) noexcept {
+    return filter::should_log_client_loc(lvl, loc.file_name(), loc.function_name(),
+                                         loc_key(loc.file_name(), loc.function_name()), client_bit);
+}
+
+// LEVEL INDEXES
+
 // Level assumed when a ringbuffer line carries no parsable "[LVL]" field. INF is the only safe
 // default: guessing lower would hide a warning behind a filter, guessing higher would raise every
 // unparsable line to an alarm. The value is the index into the level table (0=trace..5=critical).
 inline constexpr uint8_t kLogLevelInfo = 2u;
 
-// Der unterste Index derselben Tabelle: alles wird durchgelassen. Er kam am 2026-08-31 dazu, weil
-// die Standalone-Einstiege ihre Stufe seither als ZAHL uebergeben statt als Konstante der
-// Bibliothek — sie setzen beide Stufen auf TRC, damit ein abstuerzendes Werkzeug nicht genau die
-// Zeilen im Puffer mitnimmt, die den Absturz erklaeren.
+// Der unterste Index derselben Tabelle: alles wird durchgelassen. Die Standalone-Einstiege
+// uebergeben ihre Stufe als ZAHL statt als Konstante der Bibliothek und setzen beide Stufen auf
+// TRC, damit ein abstuerzendes Werkzeug nicht genau die Zeilen im Puffer mitnimmt, die den
+// Absturz erklaeren.
 inline constexpr uint8_t kLogLevelTrace = 0u;
 
 // Highest level index the tables in this header carry: 0 TRC, 1 DBG, 2 INF, 3 WRN, 4 ERR, 5 CRT.
@@ -129,39 +212,16 @@ inline constexpr uint8_t kLogLevelTrace = 0u;
 // the alternative is an out-of-range index into a caller's colour table.
 inline constexpr uint8_t kLogLevelMax = 5u;
 
-// Sentinel for recent_logs(since_seq): "I have nothing yet, give me the newest page." Any other
-// value is a real sequence number and returns everything after it. A caller cannot mean sequence
-// zero literally — the counter starts at one — so the sentinel costs no reachable value.
-inline constexpr uint32_t kLogSeqAll = 0u;
-
 // Stack buffer for a spdlog pattern assembled at startup. The longest pattern in the tree is the
 // coloured server line (~55 chars of escapes and fields) plus LogConfig::label (declared
 // `char label[16]` in log_module.hpp) plus the "] %v" tail — 128 leaves more than double the headroom, and the
 // buffer lives for the two statements it takes to hand the pattern to spdlog.
 inline constexpr uint32_t kLogPatternBufSize = 128u;
 
-// Page size returned for a first poll (kLogSeqAll). The ringbuffer holds more than this; a fresh
-// HTTP client asking for "recent" wants a screenful, not the whole buffer, and every later poll
-// carries its sequence number and gets exactly the delta.
-inline constexpr uint32_t kRecentLogsPageSize = 50u;
-
-struct LogEntry {
-    uint32_t seq = 0;           // monotonic sequence number
-    uint8_t level = 0;          // spdlog level (0=trace..5=critical)
-    char timestamp[16] = {};    // "HH:MM:SS.mmm"
-    char system[32] = {};       // extracted from "[SystemName]" in message
-    char message[512] = {};     // log message (truncated if too long)
-};
-
 /**
- * WO DER LOGGER LIEGT — UND WARUM NICHT MEHR IM SYSTEM (2026-08-22)
+ * WO DER LOGGER LIEGT
  *
- * Bis heute hielt LogSystem den Logger als statische Member `g_logger_`/`g_client_logger_`.
- * Ein ECS-System haelt keinen Zustand: die Goldene Regel sagt es, und der Validator meldet die
- * Folge — jeder Zugriff von aussen muss `LogSystem::logger()` rufen, und ein statischer
- * System-Aufruf ist STATIC_SYSTEM_CALLS_FORBIDDEN (4 Fundstellen in log_sys.cpp).
- *
- * Der Zustand liegt jetzt im LogResourceManager, dem von WRFL_ASE_FLYWEIGHT.md Section 1
+ * Der Zustand liegt im LogResourceManager, dem von WRFL_ASE_FLYWEIGHT.md Section 1
  * vorgesehenen Halter. Er ist hier der einzig moegliche: `log::init` laeuft VOR `Kernel::build`,
  * also gibt es zum Zeitpunkt der Logger-Erzeugung keine Registry und damit kein `registry.ctx()`
  * (der Kopfkommentar von log_resource_manager.cpp fuehrt dieselbe Begruendung aus).
@@ -171,163 +231,83 @@ struct LogEntry {
  * hier hereinzuziehen waere der bequeme Weg und wuerde die Kapselung fuer einen Zeilenersparnis
  * aufgeben.
  *
- * DIE ACCESSOREN BLEIBEN, WEIL 186 LESESTELLEN IN DIESER DATEI AN IHNEN HAENGEN. Sie geben
- * jetzt den Slot des Managers zurueck statt eines eigenen Speichers — EIN Speicher, kein Drift.
- * Wer sie eines Tages ganz entfernen will, muss die 186 Stellen mitziehen; das ist ein eigener
- * Zug und hat mit dieser Aenderung nichts zu tun.
+ * Every inline log function below reads these two slots directly. The system that opens the
+ * sinks, LogSystem, has its own header (ase/log/systems/log_sys.hpp): a unit that writes a line
+ * names neither it nor the ECS base class it derives from, and a change to its declaration
+ * rebuilds only LogModule and its own implementation.
  */
 namespace internal {
 [[nodiscard]] std::shared_ptr<spdlog::logger>& logger_slot();
 [[nodiscard]] std::shared_ptr<spdlog::logger>& client_logger_slot();
 }  // namespace internal
 
-class LogSystem : public ecs::System {
-public:
-    /**
-     * GELOESCHT 2026-08-22: explicit LogSystem(const std::string& name, const std::string&
-     * log_file) — die zweite Haelfte einer Loeschung, deren Definition in log_sys.cpp schon
-     * entfernt ist (dort steht der Grabstein mit derselben Begruendung). Der Konstruktor war
-     * nicht bloss ungenutzt, sondern UNAUFRUFBAR: Systeme werden ueber das
-     * add_system_with<LogSystem> in log_module.hpp angelegt, und
-     * dieser Weg reicht keine Konstruktorargumente durch. LogSystem wird immer
-     * default-konstruiert; log_file_ setzt on_start aus der LogConfig, logger_name_ bleibt bei
-     * seiner Vorgabe. Eine Deklaration ohne Definition haette jeden Aufruf zu einem
-     * Linkerfehler gemacht statt zu einem Uebersetzungsfehler.
-     */
-    LogSystem() = default;
-
-    const char* name() const override { return "LogSystem"; }
-    int priority() const override { return 0; }  // First system to run
-
-    void on_start(ecs::Registry& registry) override;
-    void on_stop(ecs::Registry& registry) override;
-    void tick(ecs::Registry& registry, float dt) override;
-
-    // Configuration (call before on_start)
-    void set_name(const std::string& name) { logger_name_ = name; }
-    void set_log_file(const std::string& path) { log_file_ = path; }
-
-    // Access underlying loggers — the storage is the LogResourceManager, see the note above
-    // this class. These stay as accessors only because 186 read sites in this header use them.
-    static std::shared_ptr<spdlog::logger>& logger() { return internal::logger_slot(); }
-    static std::shared_ptr<spdlog::logger>& client_logger() { return internal::client_logger_slot(); }
-    static const std::string& log_path() { return g_log_path_; }
-
-    // Recent logs from in-memory ringbuffer (for HTTP /api/logs endpoint)
-    static ase::containers::Vector<LogEntry> recent_logs(uint32_t since_seq = 0);
-    static uint32_t log_counter() { return g_log_counter_.load(); }
-
-private:
-    std::string logger_name_ = "ASE";
-    std::string log_file_;
-
-    // GELOESCHT 2026-08-22: g_logger_ / g_client_logger_. Der Logger liegt jetzt im
-    // LogResourceManager (siehe die Notiz ueber dieser Klasse) — ein System haelt keinen
-    // Zustand, und solange er hier lag, brauchte jede freie Funktion in log_sys.cpp einen
-    // statischen LogSystem::-Aufruf, um an ihn heranzukommen.
-    static std::string g_log_path_;
-    static std::shared_ptr<spdlog::sinks::sink> g_ringbuffer_sink_;
-    static std::atomic<uint32_t> g_log_counter_;
-};
-
-// ============================================================================
-// Log rotation quota — steht seit 2026-08-31 in ase/log/log_quota.hpp
-// ============================================================================
+// WAS DIESER HEADER NICHT TRAEGT
 //
-// HIER STANDEN die Rotations- und Aufbewahrungsschranken samt LogQuota, log_quota(),
-// log_quota_in(), set_log_quota(), log_dir_path() und log_quota_path(). Sie sind
-// UNVERAENDERT nach <ase/log/log_quota.hpp> gewandert — wer eine Quota liest oder schreibt,
-// bindet diesen Header ein.
+// Die Rotations- und Aufbewahrungsschranken samt LogQuota, log_quota(), log_quota_in(),
+// set_log_quota(), log_dir_path() und log_quota_path() stehen in <ase/log/log_quota.hpp> — wer
+// eine Quota liest oder schreibt, bindet diesen Header ein.
 //
-// DER GRUND IST DER EINSATZZWECK UND SEIN VERBRAUCHERKREIS, und beides ist gemessen:
-// diese Datei wird von 2224 Uebersetzungseinheiten eingebunden, die Quota-Symbole von SECHS
-// Dateien — vier im Modul (internal/log_files.hpp, src/log_files.cpp, src/log_sys.cpp und
-// diese) und zwei ausserhalb (tools/ase-edge-daemon/.../backend_paths.cpp,
-// tools/ase-cli/src/logs/logs_cmd.cpp). Eine geaenderte Rotationsschranke uebersetzte damit
-// 2224 Einheiten neu, obwohl sechs sie lesen.
+// Die vier Einstiege, mit denen ein Programm OHNE ECS-Welt einen Logger bekommt (init,
+// init_server_standalone, init_tui_standalone, install_capture_logger), die Capture-Klammer, der
+// Filter-Einstieg aus argv, finalize_logger_after_boot und shutdown stehen in
+// <ase/log/log_lifecycle.hpp>. Die client_*- und die rtc_*-Familie, die in den ZWEITEN Logger des
+// Moduls schreiben, stehen in <ase/log/log_client.hpp>.
 //
-// NICHT DIE ZEILENZAHL WAR DER ANLASS, SONDERN DIE KOPPLUNG. Ein Zweck, den sechs Dateien
-// brauchen, gehoert nicht in den Header, den der ganze Baum sieht — und ein Header, den der
-// ganze Baum sieht, darf sich nur aendern, wenn sich der AUFRUF aendert.
-
-// ============================================================================
-// Aufsetzen und Beenden des Loggers — UMGEZOGEN am 2026-08-31
-// ============================================================================
+// The read side of the ring (recent_logs, LogEntry, kLogSeqAll, kRecentLogsPageSize) stands in
+// <ase/log/log_query.hpp>. It is the only part of the log that needs a container, and a unit that
+// writes a line does not see that container.
 //
-// Hier standen bis heute die vier Einstiege, mit denen ein Programm OHNE ECS-Welt einen Logger
-// bekommt (init, init_server_standalone, init_tui_standalone, install_capture_logger), die
-// Capture-Klammer, der Filter-Einstieg aus argv, finalize_logger_after_boot und shutdown.
-// Sie stehen jetzt vollstaendig in <ase/log/log_lifecycle.hpp>.
+// UND ES GIBT HIER ABSICHTLICH KEIN `#include` auf einen dieser Header. Ein Durchreicher waere
+// bequem — er wuerde aber genau die Kopplung herstellen, die der Schnitt aufloest: ueber ihn
+// haenge jede Einheit, die eine Zeile schreibt, am Lebenszyklus, an der Quota und an der
+// Client-Familie, und eine Aenderung dort baute den Baum. Wer eine dieser Funktionen ruft,
+// bindet den Header ein, in dem sie steht.
 //
-// GEMESSEN, NICHT GESCHAETZT: dieser Header wird von 2224 Uebersetzungseinheiten eingebunden.
-// Den Lebenszyklus dagegen ruft, wer ein Programm STARTET oder BEENDET — init aus 14 Dateien,
-// shutdown aus 10, die Capture-Klammer aus 3. Eine Aenderung an der Capture-Klammer uebersetzte
-// damit 2224 Einheiten neu, obwohl drei sie rufen.
-//
-// UND ES GIBT HIER ABSICHTLICH KEIN `#include <ase/log/log_lifecycle.hpp>`. Ein Durchreicher
-// waere bequem und haette den Umzug fuer jeden Aufrufer unsichtbar gemacht — er haette aber
-// genau die Kopplung wiederhergestellt, die der Schnitt aufloest: ueber ihn haenge jede der 2224
-// Einheiten weiter am Lebenszyklus, und eine Aenderung dort baute den Baum erneut. Wer eine
-// dieser Funktionen ruft, bindet den Header ein, in dem sie steht.
-//
-// NICHT DIE ZEILENZAHL WAR DER ANLASS, SONDERN DIE KOPPLUNG — dieselbe Begruendung wie beim
-// Quota-Block darueber, und dieselbe Regel: ein Header, den der ganze Baum sieht, darf sich nur
-// aendern, wenn sich der Zweck aendert, den der ganze Baum braucht. Das ist hier der AUFRUF.
+// NICHT DIE ZEILENZAHL WAR DER ANLASS, SONDERN DIE KOPPLUNG: ein Header, den der ganze Baum
+// sieht, darf sich nur aendern, wenn sich der Zweck aendert, den der ganze Baum braucht. Das ist
+// hier der AUFRUF.
 
-// (Der uebrige Lebenszyklus steht in <ase/log/log_lifecycle.hpp> — siehe den Grabstein oben.)
-
-
-
-
-
-
-
-
-// ============================================================================
-// Global Logging Functions (static, use LogSystem's logger)
-// ============================================================================
+// GLOBAL LOGGING FUNCTIONS (the server logger the LogResourceManager holds)
 
 // Simple string logging with compile-time category filtering
 // source_location default param captures CALL SITE, not this file
 inline void info(const std::string& msg,
                  const std::source_location& loc = std::source_location::current()) {
     if (!should_log_loc(level::info, loc)) return;
-    if (LogSystem::logger()) LogSystem::logger()->info("{}", msg);
+    if (internal::logger_slot()) internal::logger_slot()->info("{}", msg);
 }
 
 inline void warn(const std::string& msg,
                  const std::source_location& loc = std::source_location::current()) {
     if (!should_log_loc(level::warn, loc)) return;
-    if (LogSystem::logger()) LogSystem::logger()->warn("{}", msg);
+    if (internal::logger_slot()) internal::logger_slot()->warn("{}", msg);
 }
 
 inline void error(const std::string& msg,
                   const std::source_location& loc = std::source_location::current()) {
     if (!should_log_loc(level::error, loc)) return;
-    if (LogSystem::logger()) LogSystem::logger()->error("{}", msg);
+    if (internal::logger_slot()) internal::logger_slot()->error("{}", msg);
 }
 
 inline void debug(const std::string& msg,
                   const std::source_location& loc = std::source_location::current()) {
     if (!should_log_loc(level::debug, loc)) return;
-    if (LogSystem::logger()) LogSystem::logger()->debug("{}", msg);
+    if (internal::logger_slot()) internal::logger_slot()->debug("{}", msg);
 }
 
 inline void trace(const std::string& msg,
                   const std::source_location& loc = std::source_location::current()) {
     if (!should_log_loc(level::trace, loc)) return;
-    if (LogSystem::logger()) LogSystem::logger()->trace("{}", msg);
+    if (internal::logger_slot()) internal::logger_slot()->trace("{}", msg);
 }
 
 inline void critical(const std::string& msg,
                      const std::source_location& loc = std::source_location::current()) {
     if (!should_log_loc(level::critical, loc)) return;
-    if (LogSystem::logger()) LogSystem::logger()->critical("{}", msg);
+    if (internal::logger_slot()) internal::logger_slot()->critical("{}", msg);
 }
 
-// ============================================================================
-// Format string wrapper that captures caller's filename via __builtin_FILE()
-// ============================================================================
+// FORMAT STRING WRAPPER THAT CAPTURES CALLER'S FILENAME VIA __builtin_FILE()
 
 /**
  * WHY NINE WRAPPERS INSTEAD OF ONE PARAMETER PACK
@@ -354,7 +334,69 @@ inline void critical(const std::string& msg,
  * family — an uneven ceiling would be a trap, because adding one argument to a warn line would
  * break the build for a reason nobody can see at the call site. Needing a tenth means adding
  * one wrapper and one overload per level, and the compiler names the site.
+ *
+ * EVERY ARGUMENT NEEDS A FIELD IN THE FORMAT STRING. fmt checks only the other direction at
+ * compile time: a field without an argument fails, an argument without a field is dropped in
+ * silence. Because a log_fmtN is built implicitly from any string, log::debug("Sys", "op", detail)
+ * makes "Sys" the format of a log_fmt2 and loses both real arguments without a word. Each
+ * constructor therefore counts the replacement fields of its literal (a nested field such as the
+ * dynamic width of "{:{}}" counts too) and refuses fewer fields than arguments.
  */
+namespace detail {
+
+// Declared and never defined, and not constexpr: the wrapper constructors are evaluated at
+// compile time (fmt's format check is consteval), so a call that reaches this function ends
+// the constant evaluation and the log line with too few fields does not compile.
+void format_string_names_fewer_fields_than_arguments() noexcept;
+
+/**
+ * @brief The replacement fields of a format string, escaped braces ({{ and }}) excluded.
+ * @param text The format string
+ * @param length Its length in chars
+ * @return The number of fields, nested fields included
+ */
+[[nodiscard]] constexpr uint32_t format_field_count(const char* text, uint64_t length) noexcept {
+    uint32_t fields = 0u;
+    uint64_t at = 0u;
+    while (at < length) {
+        if (text[at] != '{') {
+            ++at;
+            continue;
+        }
+        if (at + 1u < length && text[at + 1u] == '{') {
+            at += 2u;
+            continue;
+        }
+        ++fields;
+        uint32_t depth = 1u;
+        ++at;
+        while (at < length && depth > 0u) {
+            if (text[at] == '{') {
+                ++fields;
+                ++depth;
+            }
+            if (text[at] == '}') --depth;
+            ++at;
+        }
+    }
+    return fields;
+}
+
+/**
+ * @brief Refuses a format string that names fewer fields than the call passes arguments.
+ * @param format The literal the wrapper is built from, NUL-terminated
+ * @param arguments The arity of the wrapper
+ */
+constexpr void require_field_per_argument(const char* format, uint32_t arguments) noexcept {
+    uint64_t length = 0u;
+    while (format[length] != '\0') ++length;
+    if (format_field_count(format, length) < arguments) {
+        format_string_names_fewer_fields_than_arguments();
+    }
+}
+
+}  // namespace detail
+
 template<typename T0>
 struct log_fmt1 {
     spdlog::format_string_t<T0> fmt;
@@ -366,7 +408,9 @@ struct log_fmt1 {
         requires (!std::is_arithmetic_v<std::remove_cvref_t<S>>)
     constexpr log_fmt1(const S& s, const char* f = __builtin_FILE(),
                        const char* fn = __builtin_FUNCTION())
-        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {}
+        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {
+        detail::require_field_per_argument(s, 1u);
+    }
 };
 
 template<typename T0, typename T1>
@@ -380,7 +424,9 @@ struct log_fmt2 {
         requires (!std::is_arithmetic_v<std::remove_cvref_t<S>>)
     constexpr log_fmt2(const S& s, const char* f = __builtin_FILE(),
                        const char* fn = __builtin_FUNCTION())
-        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {}
+        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {
+        detail::require_field_per_argument(s, 2u);
+    }
 };
 
 template<typename T0, typename T1, typename T2>
@@ -394,7 +440,9 @@ struct log_fmt3 {
         requires (!std::is_arithmetic_v<std::remove_cvref_t<S>>)
     constexpr log_fmt3(const S& s, const char* f = __builtin_FILE(),
                        const char* fn = __builtin_FUNCTION())
-        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {}
+        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {
+        detail::require_field_per_argument(s, 3u);
+    }
 };
 
 template<typename T0, typename T1, typename T2, typename T3>
@@ -408,7 +456,9 @@ struct log_fmt4 {
         requires (!std::is_arithmetic_v<std::remove_cvref_t<S>>)
     constexpr log_fmt4(const S& s, const char* f = __builtin_FILE(),
                        const char* fn = __builtin_FUNCTION())
-        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {}
+        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {
+        detail::require_field_per_argument(s, 4u);
+    }
 };
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4>
@@ -422,7 +472,9 @@ struct log_fmt5 {
         requires (!std::is_arithmetic_v<std::remove_cvref_t<S>>)
     constexpr log_fmt5(const S& s, const char* f = __builtin_FILE(),
                        const char* fn = __builtin_FUNCTION())
-        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {}
+        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {
+        detail::require_field_per_argument(s, 5u);
+    }
 };
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5>
@@ -436,7 +488,9 @@ struct log_fmt6 {
         requires (!std::is_arithmetic_v<std::remove_cvref_t<S>>)
     constexpr log_fmt6(const S& s, const char* f = __builtin_FILE(),
                        const char* fn = __builtin_FUNCTION())
-        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {}
+        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {
+        detail::require_field_per_argument(s, 6u);
+    }
 };
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -451,7 +505,9 @@ struct log_fmt7 {
         requires (!std::is_arithmetic_v<std::remove_cvref_t<S>>)
     constexpr log_fmt7(const S& s, const char* f = __builtin_FILE(),
                        const char* fn = __builtin_FUNCTION())
-        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {}
+        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {
+        detail::require_field_per_argument(s, 7u);
+    }
 };
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -466,7 +522,9 @@ struct log_fmt8 {
         requires (!std::is_arithmetic_v<std::remove_cvref_t<S>>)
     constexpr log_fmt8(const S& s, const char* f = __builtin_FILE(),
                        const char* fn = __builtin_FUNCTION())
-        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {}
+        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {
+        detail::require_field_per_argument(s, 8u);
+    }
 };
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -481,7 +539,9 @@ struct log_fmt9 {
         requires (!std::is_arithmetic_v<std::remove_cvref_t<S>>)
     constexpr log_fmt9(const S& s, const char* f = __builtin_FILE(),
                        const char* fn = __builtin_FUNCTION())
-        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {}
+        : fmt(s), file(f), func(fn), loc_hash(loc_key(f, fn)) {
+        detail::require_field_per_argument(s, 9u);
+    }
 };
 
 // Formatted logging (fmt style) with full category filtering.
@@ -501,35 +561,35 @@ struct log_fmt9 {
 
 template<typename T0>
 inline void info(log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_loc(filter::LVL_INF, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger()) LogSystem::logger()->info(lf.fmt, std::forward<T0>(a0));
+    if (!filter::should_log_loc(level::info, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot()) internal::logger_slot()->info(lf.fmt, std::forward<T0>(a0));
 }
 
 template<typename T0, typename T1>
 inline void info(log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
                  T0&& a0, T1&& a1) {
-    if (!filter::should_log_loc(filter::LVL_INF, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
+    if (!filter::should_log_loc(level::info, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
 }
 
 template<typename T0, typename T1, typename T2>
 inline void info(log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T2>> lf, T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_loc(filter::LVL_INF, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2));
+    if (!filter::should_log_loc(level::info, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2));
 }
 
 template<typename T0, typename T1, typename T2, typename T3>
 inline void info(log_fmt4<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T2>, std::type_identity_t<T3>> lf,
                  T0&& a0, T1&& a1, T2&& a2, T3&& a3) {
-    if (!filter::should_log_loc(filter::LVL_INF, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2), std::forward<T3>(a3));
+    if (!filter::should_log_loc(level::info, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2), std::forward<T3>(a3));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4>
@@ -537,11 +597,11 @@ inline void info(log_fmt5<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T2>, std::type_identity_t<T3>,
                           std::type_identity_t<T4>> lf,
                  T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4) {
-    if (!filter::should_log_loc(filter::LVL_INF, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2), std::forward<T3>(a3),
-                                  std::forward<T4>(a4));
+    if (!filter::should_log_loc(level::info, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2), std::forward<T3>(a3),
+                                      std::forward<T4>(a4));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5>
@@ -549,11 +609,11 @@ inline void info(log_fmt6<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T2>, std::type_identity_t<T3>,
                           std::type_identity_t<T4>, std::type_identity_t<T5>> lf,
                  T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5) {
-    if (!filter::should_log_loc(filter::LVL_INF, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2), std::forward<T3>(a3),
-                                  std::forward<T4>(a4), std::forward<T5>(a5));
+    if (!filter::should_log_loc(level::info, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2), std::forward<T3>(a3),
+                                      std::forward<T4>(a4), std::forward<T5>(a5));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -563,12 +623,12 @@ inline void info(log_fmt7<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T4>, std::type_identity_t<T5>,
                           std::type_identity_t<T6>> lf,
                  T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6) {
-    if (!filter::should_log_loc(filter::LVL_INF, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2), std::forward<T3>(a3),
-                                  std::forward<T4>(a4), std::forward<T5>(a5),
-                                  std::forward<T6>(a6));
+    if (!filter::should_log_loc(level::info, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2), std::forward<T3>(a3),
+                                      std::forward<T4>(a4), std::forward<T5>(a5),
+                                      std::forward<T6>(a6));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -578,12 +638,12 @@ inline void info(log_fmt8<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T4>, std::type_identity_t<T5>,
                           std::type_identity_t<T6>, std::type_identity_t<T7>> lf,
                  T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7) {
-    if (!filter::should_log_loc(filter::LVL_INF, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2), std::forward<T3>(a3),
-                                  std::forward<T4>(a4), std::forward<T5>(a5),
-                                  std::forward<T6>(a6), std::forward<T7>(a7));
+    if (!filter::should_log_loc(level::info, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2), std::forward<T3>(a3),
+                                      std::forward<T4>(a4), std::forward<T5>(a5),
+                                      std::forward<T6>(a6), std::forward<T7>(a7));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -595,46 +655,46 @@ inline void info(log_fmt9<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T8>> lf,
                  T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7,
                  T8&& a8) {
-    if (!filter::should_log_loc(filter::LVL_INF, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2), std::forward<T3>(a3),
-                                  std::forward<T4>(a4), std::forward<T5>(a5),
-                                  std::forward<T6>(a6), std::forward<T7>(a7),
-                                  std::forward<T8>(a8));
+    if (!filter::should_log_loc(level::info, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->info(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2), std::forward<T3>(a3),
+                                      std::forward<T4>(a4), std::forward<T5>(a5),
+                                      std::forward<T6>(a6), std::forward<T7>(a7),
+                                      std::forward<T8>(a8));
 }
 
 template<typename T0>
 inline void warn(log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_loc(filter::LVL_WRN, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger()) LogSystem::logger()->warn(lf.fmt, std::forward<T0>(a0));
+    if (!filter::should_log_loc(level::warn, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot()) internal::logger_slot()->warn(lf.fmt, std::forward<T0>(a0));
 }
 
 template<typename T0, typename T1>
 inline void warn(log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
                  T0&& a0, T1&& a1) {
-    if (!filter::should_log_loc(filter::LVL_WRN, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
+    if (!filter::should_log_loc(level::warn, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
 }
 
 template<typename T0, typename T1, typename T2>
 inline void warn(log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T2>> lf, T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_loc(filter::LVL_WRN, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2));
+    if (!filter::should_log_loc(level::warn, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2));
 }
 
 template<typename T0, typename T1, typename T2, typename T3>
 inline void warn(log_fmt4<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T2>, std::type_identity_t<T3>> lf,
                  T0&& a0, T1&& a1, T2&& a2, T3&& a3) {
-    if (!filter::should_log_loc(filter::LVL_WRN, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2), std::forward<T3>(a3));
+    if (!filter::should_log_loc(level::warn, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2), std::forward<T3>(a3));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4>
@@ -642,11 +702,11 @@ inline void warn(log_fmt5<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T2>, std::type_identity_t<T3>,
                           std::type_identity_t<T4>> lf,
                  T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4) {
-    if (!filter::should_log_loc(filter::LVL_WRN, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2), std::forward<T3>(a3),
-                                  std::forward<T4>(a4));
+    if (!filter::should_log_loc(level::warn, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2), std::forward<T3>(a3),
+                                      std::forward<T4>(a4));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5>
@@ -654,11 +714,11 @@ inline void warn(log_fmt6<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T2>, std::type_identity_t<T3>,
                           std::type_identity_t<T4>, std::type_identity_t<T5>> lf,
                  T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5) {
-    if (!filter::should_log_loc(filter::LVL_WRN, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2), std::forward<T3>(a3),
-                                  std::forward<T4>(a4), std::forward<T5>(a5));
+    if (!filter::should_log_loc(level::warn, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2), std::forward<T3>(a3),
+                                      std::forward<T4>(a4), std::forward<T5>(a5));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -668,12 +728,12 @@ inline void warn(log_fmt7<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T4>, std::type_identity_t<T5>,
                           std::type_identity_t<T6>> lf,
                  T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6) {
-    if (!filter::should_log_loc(filter::LVL_WRN, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2), std::forward<T3>(a3),
-                                  std::forward<T4>(a4), std::forward<T5>(a5),
-                                  std::forward<T6>(a6));
+    if (!filter::should_log_loc(level::warn, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2), std::forward<T3>(a3),
+                                      std::forward<T4>(a4), std::forward<T5>(a5),
+                                      std::forward<T6>(a6));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -683,12 +743,12 @@ inline void warn(log_fmt8<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T4>, std::type_identity_t<T5>,
                           std::type_identity_t<T6>, std::type_identity_t<T7>> lf,
                  T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7) {
-    if (!filter::should_log_loc(filter::LVL_WRN, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2), std::forward<T3>(a3),
-                                  std::forward<T4>(a4), std::forward<T5>(a5),
-                                  std::forward<T6>(a6), std::forward<T7>(a7));
+    if (!filter::should_log_loc(level::warn, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2), std::forward<T3>(a3),
+                                      std::forward<T4>(a4), std::forward<T5>(a5),
+                                      std::forward<T6>(a6), std::forward<T7>(a7));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -700,46 +760,46 @@ inline void warn(log_fmt9<std::type_identity_t<T0>, std::type_identity_t<T1>,
                           std::type_identity_t<T8>> lf,
                  T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7,
                  T8&& a8) {
-    if (!filter::should_log_loc(filter::LVL_WRN, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                  std::forward<T2>(a2), std::forward<T3>(a3),
-                                  std::forward<T4>(a4), std::forward<T5>(a5),
-                                  std::forward<T6>(a6), std::forward<T7>(a7),
-                                  std::forward<T8>(a8));
+    if (!filter::should_log_loc(level::warn, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->warn(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                      std::forward<T2>(a2), std::forward<T3>(a3),
+                                      std::forward<T4>(a4), std::forward<T5>(a5),
+                                      std::forward<T6>(a6), std::forward<T7>(a7),
+                                      std::forward<T8>(a8));
 }
 
 template<typename T0>
 inline void error(log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_loc(filter::LVL_ERR, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger()) LogSystem::logger()->error(lf.fmt, std::forward<T0>(a0));
+    if (!filter::should_log_loc(level::error, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot()) internal::logger_slot()->error(lf.fmt, std::forward<T0>(a0));
 }
 
 template<typename T0, typename T1>
 inline void error(log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
                   T0&& a0, T1&& a1) {
-    if (!filter::should_log_loc(filter::LVL_ERR, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
+    if (!filter::should_log_loc(level::error, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
 }
 
 template<typename T0, typename T1, typename T2>
 inline void error(log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T2>> lf, T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_loc(filter::LVL_ERR, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2));
+    if (!filter::should_log_loc(level::error, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2));
 }
 
 template<typename T0, typename T1, typename T2, typename T3>
 inline void error(log_fmt4<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T2>, std::type_identity_t<T3>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3) {
-    if (!filter::should_log_loc(filter::LVL_ERR, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3));
+    if (!filter::should_log_loc(level::error, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4>
@@ -747,11 +807,11 @@ inline void error(log_fmt5<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T2>, std::type_identity_t<T3>,
                            std::type_identity_t<T4>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4) {
-    if (!filter::should_log_loc(filter::LVL_ERR, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4));
+    if (!filter::should_log_loc(level::error, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5>
@@ -759,11 +819,11 @@ inline void error(log_fmt6<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T2>, std::type_identity_t<T3>,
                            std::type_identity_t<T4>, std::type_identity_t<T5>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5) {
-    if (!filter::should_log_loc(filter::LVL_ERR, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4), std::forward<T5>(a5));
+    if (!filter::should_log_loc(level::error, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4), std::forward<T5>(a5));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -773,12 +833,12 @@ inline void error(log_fmt7<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T4>, std::type_identity_t<T5>,
                            std::type_identity_t<T6>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6) {
-    if (!filter::should_log_loc(filter::LVL_ERR, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4), std::forward<T5>(a5),
-                                   std::forward<T6>(a6));
+    if (!filter::should_log_loc(level::error, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4), std::forward<T5>(a5),
+                                       std::forward<T6>(a6));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -788,12 +848,12 @@ inline void error(log_fmt8<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T4>, std::type_identity_t<T5>,
                            std::type_identity_t<T6>, std::type_identity_t<T7>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7) {
-    if (!filter::should_log_loc(filter::LVL_ERR, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4), std::forward<T5>(a5),
-                                   std::forward<T6>(a6), std::forward<T7>(a7));
+    if (!filter::should_log_loc(level::error, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4), std::forward<T5>(a5),
+                                       std::forward<T6>(a6), std::forward<T7>(a7));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -805,46 +865,46 @@ inline void error(log_fmt9<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T8>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7,
                   T8&& a8) {
-    if (!filter::should_log_loc(filter::LVL_ERR, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4), std::forward<T5>(a5),
-                                   std::forward<T6>(a6), std::forward<T7>(a7),
-                                   std::forward<T8>(a8));
+    if (!filter::should_log_loc(level::error, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->error(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4), std::forward<T5>(a5),
+                                       std::forward<T6>(a6), std::forward<T7>(a7),
+                                       std::forward<T8>(a8));
 }
 
 template<typename T0>
 inline void debug(log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_loc(filter::LVL_DBG, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger()) LogSystem::logger()->debug(lf.fmt, std::forward<T0>(a0));
+    if (!filter::should_log_loc(level::debug, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot()) internal::logger_slot()->debug(lf.fmt, std::forward<T0>(a0));
 }
 
 template<typename T0, typename T1>
 inline void debug(log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
                   T0&& a0, T1&& a1) {
-    if (!filter::should_log_loc(filter::LVL_DBG, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
+    if (!filter::should_log_loc(level::debug, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
 }
 
 template<typename T0, typename T1, typename T2>
 inline void debug(log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T2>> lf, T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_loc(filter::LVL_DBG, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2));
+    if (!filter::should_log_loc(level::debug, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2));
 }
 
 template<typename T0, typename T1, typename T2, typename T3>
 inline void debug(log_fmt4<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T2>, std::type_identity_t<T3>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3) {
-    if (!filter::should_log_loc(filter::LVL_DBG, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3));
+    if (!filter::should_log_loc(level::debug, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4>
@@ -852,11 +912,11 @@ inline void debug(log_fmt5<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T2>, std::type_identity_t<T3>,
                            std::type_identity_t<T4>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4) {
-    if (!filter::should_log_loc(filter::LVL_DBG, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4));
+    if (!filter::should_log_loc(level::debug, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5>
@@ -864,11 +924,11 @@ inline void debug(log_fmt6<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T2>, std::type_identity_t<T3>,
                            std::type_identity_t<T4>, std::type_identity_t<T5>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5) {
-    if (!filter::should_log_loc(filter::LVL_DBG, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4), std::forward<T5>(a5));
+    if (!filter::should_log_loc(level::debug, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4), std::forward<T5>(a5));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -878,12 +938,12 @@ inline void debug(log_fmt7<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T4>, std::type_identity_t<T5>,
                            std::type_identity_t<T6>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6) {
-    if (!filter::should_log_loc(filter::LVL_DBG, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4), std::forward<T5>(a5),
-                                   std::forward<T6>(a6));
+    if (!filter::should_log_loc(level::debug, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4), std::forward<T5>(a5),
+                                       std::forward<T6>(a6));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -893,12 +953,12 @@ inline void debug(log_fmt8<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T4>, std::type_identity_t<T5>,
                            std::type_identity_t<T6>, std::type_identity_t<T7>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7) {
-    if (!filter::should_log_loc(filter::LVL_DBG, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4), std::forward<T5>(a5),
-                                   std::forward<T6>(a6), std::forward<T7>(a7));
+    if (!filter::should_log_loc(level::debug, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4), std::forward<T5>(a5),
+                                       std::forward<T6>(a6), std::forward<T7>(a7));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -910,46 +970,46 @@ inline void debug(log_fmt9<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T8>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7,
                   T8&& a8) {
-    if (!filter::should_log_loc(filter::LVL_DBG, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4), std::forward<T5>(a5),
-                                   std::forward<T6>(a6), std::forward<T7>(a7),
-                                   std::forward<T8>(a8));
+    if (!filter::should_log_loc(level::debug, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->debug(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4), std::forward<T5>(a5),
+                                       std::forward<T6>(a6), std::forward<T7>(a7),
+                                       std::forward<T8>(a8));
 }
 
 template<typename T0>
 inline void trace(log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_loc(filter::LVL_TRC, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger()) LogSystem::logger()->trace(lf.fmt, std::forward<T0>(a0));
+    if (!filter::should_log_loc(level::trace, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot()) internal::logger_slot()->trace(lf.fmt, std::forward<T0>(a0));
 }
 
 template<typename T0, typename T1>
 inline void trace(log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
                   T0&& a0, T1&& a1) {
-    if (!filter::should_log_loc(filter::LVL_TRC, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
+    if (!filter::should_log_loc(level::trace, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
 }
 
 template<typename T0, typename T1, typename T2>
 inline void trace(log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T2>> lf, T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_loc(filter::LVL_TRC, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2));
+    if (!filter::should_log_loc(level::trace, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2));
 }
 
 template<typename T0, typename T1, typename T2, typename T3>
 inline void trace(log_fmt4<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T2>, std::type_identity_t<T3>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3) {
-    if (!filter::should_log_loc(filter::LVL_TRC, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3));
+    if (!filter::should_log_loc(level::trace, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4>
@@ -957,11 +1017,11 @@ inline void trace(log_fmt5<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T2>, std::type_identity_t<T3>,
                            std::type_identity_t<T4>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4) {
-    if (!filter::should_log_loc(filter::LVL_TRC, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4));
+    if (!filter::should_log_loc(level::trace, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5>
@@ -969,11 +1029,11 @@ inline void trace(log_fmt6<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T2>, std::type_identity_t<T3>,
                            std::type_identity_t<T4>, std::type_identity_t<T5>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5) {
-    if (!filter::should_log_loc(filter::LVL_TRC, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4), std::forward<T5>(a5));
+    if (!filter::should_log_loc(level::trace, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4), std::forward<T5>(a5));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -983,12 +1043,12 @@ inline void trace(log_fmt7<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T4>, std::type_identity_t<T5>,
                            std::type_identity_t<T6>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6) {
-    if (!filter::should_log_loc(filter::LVL_TRC, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4), std::forward<T5>(a5),
-                                   std::forward<T6>(a6));
+    if (!filter::should_log_loc(level::trace, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4), std::forward<T5>(a5),
+                                       std::forward<T6>(a6));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -998,12 +1058,12 @@ inline void trace(log_fmt8<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T4>, std::type_identity_t<T5>,
                            std::type_identity_t<T6>, std::type_identity_t<T7>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7) {
-    if (!filter::should_log_loc(filter::LVL_TRC, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4), std::forward<T5>(a5),
-                                   std::forward<T6>(a6), std::forward<T7>(a7));
+    if (!filter::should_log_loc(level::trace, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4), std::forward<T5>(a5),
+                                       std::forward<T6>(a6), std::forward<T7>(a7));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -1015,46 +1075,46 @@ inline void trace(log_fmt9<std::type_identity_t<T0>, std::type_identity_t<T1>,
                            std::type_identity_t<T8>> lf,
                   T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7,
                   T8&& a8) {
-    if (!filter::should_log_loc(filter::LVL_TRC, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                   std::forward<T2>(a2), std::forward<T3>(a3),
-                                   std::forward<T4>(a4), std::forward<T5>(a5),
-                                   std::forward<T6>(a6), std::forward<T7>(a7),
-                                   std::forward<T8>(a8));
+    if (!filter::should_log_loc(level::trace, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->trace(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                       std::forward<T2>(a2), std::forward<T3>(a3),
+                                       std::forward<T4>(a4), std::forward<T5>(a5),
+                                       std::forward<T6>(a6), std::forward<T7>(a7),
+                                       std::forward<T8>(a8));
 }
 
 template<typename T0>
 inline void critical(log_fmt1<std::type_identity_t<T0>> lf, T0&& a0) {
-    if (!filter::should_log_loc(filter::LVL_CRT, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger()) LogSystem::logger()->critical(lf.fmt, std::forward<T0>(a0));
+    if (!filter::should_log_loc(level::critical, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot()) internal::logger_slot()->critical(lf.fmt, std::forward<T0>(a0));
 }
 
 template<typename T0, typename T1>
 inline void critical(log_fmt2<std::type_identity_t<T0>, std::type_identity_t<T1>> lf,
                      T0&& a0, T1&& a1) {
-    if (!filter::should_log_loc(filter::LVL_CRT, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
+    if (!filter::should_log_loc(level::critical, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1));
 }
 
 template<typename T0, typename T1, typename T2>
 inline void critical(log_fmt3<std::type_identity_t<T0>, std::type_identity_t<T1>,
                               std::type_identity_t<T2>> lf, T0&& a0, T1&& a1, T2&& a2) {
-    if (!filter::should_log_loc(filter::LVL_CRT, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                      std::forward<T2>(a2));
+    if (!filter::should_log_loc(level::critical, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                          std::forward<T2>(a2));
 }
 
 template<typename T0, typename T1, typename T2, typename T3>
 inline void critical(log_fmt4<std::type_identity_t<T0>, std::type_identity_t<T1>,
                               std::type_identity_t<T2>, std::type_identity_t<T3>> lf,
                      T0&& a0, T1&& a1, T2&& a2, T3&& a3) {
-    if (!filter::should_log_loc(filter::LVL_CRT, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                      std::forward<T2>(a2), std::forward<T3>(a3));
+    if (!filter::should_log_loc(level::critical, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                          std::forward<T2>(a2), std::forward<T3>(a3));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4>
@@ -1062,11 +1122,11 @@ inline void critical(log_fmt5<std::type_identity_t<T0>, std::type_identity_t<T1>
                               std::type_identity_t<T2>, std::type_identity_t<T3>,
                               std::type_identity_t<T4>> lf,
                      T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4) {
-    if (!filter::should_log_loc(filter::LVL_CRT, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                      std::forward<T2>(a2), std::forward<T3>(a3),
-                                      std::forward<T4>(a4));
+    if (!filter::should_log_loc(level::critical, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                          std::forward<T2>(a2), std::forward<T3>(a3),
+                                          std::forward<T4>(a4));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5>
@@ -1074,11 +1134,11 @@ inline void critical(log_fmt6<std::type_identity_t<T0>, std::type_identity_t<T1>
                               std::type_identity_t<T2>, std::type_identity_t<T3>,
                               std::type_identity_t<T4>, std::type_identity_t<T5>> lf,
                      T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5) {
-    if (!filter::should_log_loc(filter::LVL_CRT, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                      std::forward<T2>(a2), std::forward<T3>(a3),
-                                      std::forward<T4>(a4), std::forward<T5>(a5));
+    if (!filter::should_log_loc(level::critical, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                          std::forward<T2>(a2), std::forward<T3>(a3),
+                                          std::forward<T4>(a4), std::forward<T5>(a5));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -1088,12 +1148,12 @@ inline void critical(log_fmt7<std::type_identity_t<T0>, std::type_identity_t<T1>
                               std::type_identity_t<T4>, std::type_identity_t<T5>,
                               std::type_identity_t<T6>> lf,
                      T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6) {
-    if (!filter::should_log_loc(filter::LVL_CRT, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                      std::forward<T2>(a2), std::forward<T3>(a3),
-                                      std::forward<T4>(a4), std::forward<T5>(a5),
-                                      std::forward<T6>(a6));
+    if (!filter::should_log_loc(level::critical, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                          std::forward<T2>(a2), std::forward<T3>(a3),
+                                          std::forward<T4>(a4), std::forward<T5>(a5),
+                                          std::forward<T6>(a6));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -1103,12 +1163,12 @@ inline void critical(log_fmt8<std::type_identity_t<T0>, std::type_identity_t<T1>
                               std::type_identity_t<T4>, std::type_identity_t<T5>,
                               std::type_identity_t<T6>, std::type_identity_t<T7>> lf,
                      T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7) {
-    if (!filter::should_log_loc(filter::LVL_CRT, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                      std::forward<T2>(a2), std::forward<T3>(a3),
-                                      std::forward<T4>(a4), std::forward<T5>(a5),
-                                      std::forward<T6>(a6), std::forward<T7>(a7));
+    if (!filter::should_log_loc(level::critical, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                          std::forward<T2>(a2), std::forward<T3>(a3),
+                                          std::forward<T4>(a4), std::forward<T5>(a5),
+                                          std::forward<T6>(a6), std::forward<T7>(a7));
 }
 
 template<typename T0, typename T1, typename T2, typename T3, typename T4, typename T5,
@@ -1120,97 +1180,48 @@ inline void critical(log_fmt9<std::type_identity_t<T0>, std::type_identity_t<T1>
                               std::type_identity_t<T8>> lf,
                      T0&& a0, T1&& a1, T2&& a2, T3&& a3, T4&& a4, T5&& a5, T6&& a6, T7&& a7,
                      T8&& a8) {
-    if (!filter::should_log_loc(filter::LVL_CRT, lf.file, lf.func, lf.loc_hash)) return;
-    if (LogSystem::logger())
-        LogSystem::logger()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
-                                      std::forward<T2>(a2), std::forward<T3>(a3),
-                                      std::forward<T4>(a4), std::forward<T5>(a5),
-                                      std::forward<T6>(a6), std::forward<T7>(a7),
-                                      std::forward<T8>(a8));
+    if (!filter::should_log_loc(level::critical, lf.file, lf.func, lf.loc_hash)) return;
+    if (internal::logger_slot())
+        internal::logger_slot()->critical(lf.fmt, std::forward<T0>(a0), std::forward<T1>(a1),
+                                          std::forward<T2>(a2), std::forward<T3>(a3),
+                                          std::forward<T4>(a4), std::forward<T5>(a5),
+                                          std::forward<T6>(a6), std::forward<T7>(a7),
+                                          std::forward<T8>(a8));
 }
 
 inline void set_level(spdlog::level::level_enum level) {
-    if (LogSystem::logger()) LogSystem::logger()->set_level(level);
+    if (internal::logger_slot()) internal::logger_slot()->set_level(level);
 }
 
 inline void flush() {
-    if (LogSystem::logger()) LogSystem::logger()->flush();
+    if (internal::logger_slot()) internal::logger_slot()->flush();
 }
 
-// ============================================================================
-// Client-Weiterleitung — UMGEZOGEN am 2026-08-31 nach <ase/log/log_client.hpp>
-// ============================================================================
+// ERROR CATEGORIES (ERR::CAT) - DRY error messages with auto-generated help
 //
-// Hier stand die vollstaendige client_*-Familie: vier Stufen in je drei Formen (ungefiltert,
-// ueber ein Client-Bit gefiltert, formatiert mit Aufrufort-Erfassung). Sie schreibt in den
-// ZWEITEN Logger des Moduls und bedient damit einen anderen Zweck als dieser Header — Zeilen,
-// die ueber RTC aus einem Browser hereinkommen, nicht Zeilen, die der Server erzeugt.
-//
-// GEMESSEN, und der Befund traegt den Schnitt: die Familie hat NULL Aufrufer im ganzen Baum,
-// mit und ohne `log::`-Praefix. Der Vermerk von 2026-08-22 zwei Absaetze weiter unten hatte
-// dasselbe gemessen; die Nachmessung am 2026-08-31 bestaetigt es unabhaengig, mit
-// Positivkontrolle (dieselbe Sondenform findet `info` in 1022, `warn` in 2365 Dateien).
-//
-// SIE IST NICHT GELOESCHT, UND DAS IST KEINE NACHLAESSIGKEIT: der zweite Logger existiert, wird
-// von log_sys.cpp aufgesetzt und vom ResourceManager gehalten. Was fehlt, ist der Aufrufer, nicht
-// die Sache — eine vorbereitete Schnittstelle ist kein toter Code. Aus einem Header, den 2686
-// Dateien fuer den gewoehnlichen Aufruf einbinden, gehoert sie dennoch heraus: sonst zahlt der
-// ganze Baum bei JEDER Uebersetzung fuer eine Familie, die niemand ruft.
-
-// (Die formatierenden Fassungen der Familie stehen ebenfalls in log_client.hpp — samt dem
-// Vermerk, warum ihre Stelligkeit dort drei ist und nicht neun.)
-
-// ============================================================================
-// RTC-Server-Weiterleitung — UMGEZOGEN am 2026-08-31 nach <ase/log/log_client.hpp>
-// ============================================================================
-//
-// Hier stand die vollstaendige rtc_*-Familie: vier Stufen als String-Fassung und dieselben vier
-// in je drei Stelligkeiten, zusammen sechzehn Funktionen. Sie schreibt in den ZWEITEN Logger des
-// Moduls, mit [SERVER] [RTC]-Praefix.
-//
-// SIE STAND ZWEI ZEILEN UNTER DER client_*-FAMILIE, DIE AM SELBEN TAG DENSELBEN WEG NAHM, und
-// wurde beim ersten Schnitt uebersehen. Der Grund ist lehrreich: jener Schnitt ging nach dem
-// NAMEN (`client_*`) und nicht nach dem ZIEL (`client_logger()`). Beide Familien bedienen
-// denselben Kanal und unterscheiden sich nur in der RICHTUNG — herein aus einem Browser gegen
-// hinaus vom Server ueber die RTC-Strecke.
-//
-// GEMESSEN, mit greifender Positivkontrolle: NULL Aufrufer im ganzen Baum. Sie ist NICHT
-// geloescht — der zweite Logger existiert und wird von log_sys.cpp aufgesetzt; was fehlt, ist
-// der Aufrufer, nicht die Sache. Aus DIESEM Header gehoert sie trotzdem heraus, und der Preis
-// war hier hoeher als bei der Nachbarfamilie: zwoelf ihrer sechzehn Fassungen fuehren
-// `spdlog::format_string_t` im Vertrag, also den Bibliothekstyp, den dieser Header gerade erst
-// aus seiner Include-Zeile verloren hat.
-
-// ============================================================================
-// Error Categories (ERR::CAT) - DRY error messages with auto-generated help
-// ============================================================================
 // Usage: log::error(log::ERR::CAT::HUB_NOT_FOUND, "SystemName", owner, "VALUE_ID");
 // Output: [ERR] [SystemName] HUB_NOT_FOUND: owner=123, value_id='VALUE_ID'
 //         Check: 1) IniSystem created hub entity in on_start()
 //                2) Spawn created hub values for entity
 //                3) Correct owner ID, 4) No typo in value_id
 
-// ============================================================================
-// ERR::CAT und WRN::CAT kommen aus dem GENERATOR, nicht mehr von Hand aus dieser Datei.
-// ============================================================================
+// ERR::CAT UND WRN::CAT KOMMEN AUS DEM GENERATOR
 //
 // Konstanten, Tabellen und Zaehler sind durch static_assert aneinander gebunden. Standen sie
 // von Hand hier, war JEDE neue Kategorie ein Schrieb an einer Datei mit rund 2000 Lesern, und
 // jeder Zwischenstand zwischen zwei Edits ein Fenster, in dem der ganze Baum unbaubar ist.
-// Gemessen 2026-08-23: ein fremder Bau starb bei 468 von 887 Zielen in genau so einem Fenster.
 //
-// Aendern will man eine Kategorie ab jetzt in core/ase-log/data/log_categories.json; den Rest
-// schreibt core/ase-log/scripts/gen_log_cat.py. Ein Hilfetext oder ein Suffix kostet danach
-// EINE neu uebersetzte Datei (log_err_cat_gen.cpp) statt des Baums. Eine NEUE Kategorie aendert
-// den generierten Header und damit doch den Baum — das ist unvermeidbar, solange Aufrufer sie
-// beim Namen nennen, und es ist der seltene Fall.
+// Aendern will man eine Kategorie in core/ase-log/data/log_categories.json; den Rest schreibt
+// core/ase-log/scripts/gen_log_cat.py. Ein Hilfetext oder ein Suffix kostet danach EINE neu
+// uebersetzte Datei (log_err_cat_gen.cpp) statt des Baums. Eine NEUE Kategorie aendert den
+// generierten Header und damit doch den Baum — das ist unvermeidbar, solange Aufrufer sie beim
+// Namen nennen, und es ist der seltene Fall.
 //
-// DER INCLUDE STEHT OBEN BEI DEN UEBRIGEN, NICHT HIER. Der erste Versuch setzte ihn an genau
-// diese Stelle, um den Schnitt auf einen Ort zu halten — das ist FALSCH und wurde sofort
-// gemessen: an dieser Stelle steht die Datei bereits INNERHALB von `namespace ase::log`, ein
-// Include dort verschachtelt den fremden Namensraum zu `ase::log::ase::log::ERR`, und clangd
-// meldete es ueber acht Uebersetzungseinheiten als „No member named 'ERR' in namespace
-// 'ase::log'". Ein Include gehoert vor die erste Namensraum-Oeffnung, ohne Ausnahme.
+// DER INCLUDE STEHT OBEN BEI DEN UEBRIGEN, NICHT HIER. An dieser Stelle steht die Datei bereits
+// INNERHALB von `namespace ase::log`, ein Include dort verschachtelt den fremden Namensraum zu
+// `ase::log::ase::log::ERR`, und clangd meldet es ueber jede einbindende Uebersetzungseinheit als
+// „No member named 'ERR' in namespace 'ase::log'". Ein Include gehoert vor die erste
+// Namensraum-Oeffnung, ohne Ausnahme.
 
 
 // Die Kategorie-Texte (Namen, short, hint, tail, Suffixe) und ihre Getter stehen in
@@ -1224,12 +1235,12 @@ inline void flush() {
 // Inhalt; eine Kategorie ohne hint (UNKNOWN) bleibt einzeilig.
 //
 // Der Suffix bleibt an der KATEGORIE und nicht an der Stelligkeit: HUB_GLOBAL_MISSING druckt
-// weiterhin " (GLOBAL)", CONFIG_MISSING nichts.
+// " (GLOBAL)", CONFIG_MISSING nichts.
 
 // Categorized error logging for per-entity values
 inline void error(uint32_t cat, const char* system, uint32_t owner, const char* value_id) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->error("[{}] {}: owner={}, value_id='{}'. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->error("[{}] {}: owner={}, value_id='{}'. {}{}",
             system, detail::get_cat_name(cat), owner, value_id, detail::get_cat_short(cat), detail::get_cat_tail(cat));
     }
 }
@@ -1237,12 +1248,12 @@ inline void error(uint32_t cat, const char* system, uint32_t owner, const char* 
 // Categorized error logging for values WITHOUT an owner.
 //
 // Der Zusatz hinter der value_id kommt aus detail::get_cat_suffix() und damit aus der
-// KATEGORIE, nicht aus dieser Ueberladung. HUB_GLOBAL_MISSING druckt weiterhin „ (GLOBAL)",
-// zeichengleich zu vorher; CONFIG_MISSING druckt keinen Zusatz, weil eine Umgebungsvariable
-// keine GLOBAL-Zeile des Hubs ist.
+// KATEGORIE, nicht aus dieser Ueberladung. HUB_GLOBAL_MISSING druckt „ (GLOBAL)";
+// CONFIG_MISSING druckt keinen Zusatz, weil eine Umgebungsvariable keine GLOBAL-Zeile des Hubs
+// ist.
 inline void error(uint32_t cat, const char* system, const char* value_id) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->error("[{}] {}: value_id='{}'{}. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->error("[{}] {}: value_id='{}'{}. {}{}",
             system, detail::get_cat_name(cat), value_id, detail::get_cat_suffix(cat),
             detail::get_cat_short(cat), detail::get_cat_tail(cat));
     }
@@ -1250,15 +1261,14 @@ inline void error(uint32_t cat, const char* system, const char* value_id) {
 
 // Categorized error logging for component/entity issues (no value_id)
 inline void error(uint32_t cat, const char* system, uint32_t entity) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->error("[{}] {}: entity={}. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->error("[{}] {}: entity={}. {}{}",
             system, detail::get_cat_name(cat), entity, detail::get_cat_short(cat), detail::get_cat_tail(cat));
     }
 }
 
-// ============================================================================
-// Warning Categories (WRN::CAT) - DRY warning messages with auto-generated help
-// ============================================================================
+// WARNING CATEGORIES (WRN::CAT) - DRY warning messages with auto-generated help
+//
 // Usage: log::warn(log::WRN::CAT::VALUE_OUT_OF_RANGE, "SystemName", owner, "VALUE_ID", value, min, max);
 // Output: [WRN] [SystemName] VALUE_OUT_OF_RANGE: owner=123, value_id='VALUE_ID', value=1.5, range=[0.0,1.0]. value left its valid range
 //             Check the value against the range it left. To clamp, reject or keep it is the caller's decision
@@ -1266,15 +1276,13 @@ inline void error(uint32_t cat, const char* system, uint32_t entity) {
 // WRN::CAT steht ebenfalls in log_err_cat_gen.hpp, und beide Ebenen tragen denselben Bestand:
 // jede Kategorie existiert als Fehler UND als Warnung, ausser wo die Abgrenzung sie
 // ausschliesst (der Grund steht dann unter `_omitted` in log_categories.json). Ohne diese
-// Spiegelung ist die Regel „die Ebene folgt der ZEILE, nie der Kategorie" unerfuellbar: eine
+// Entsprechung der Namen ist die Regel „die Ebene folgt der ZEILE, nie der Kategorie" unerfuellbar: eine
 // Stelle, deren Kategorie es nur auf der anderen Ebene gibt, hat drei Auswege, und alle drei
 // sind falsch — Ebene wechseln, Kategorie verbiegen, oder als freier String stehen bleiben.
 //
-// EINE KREUZUNG IST NICHT MEHR MOEGLICH, und zwar strukturell statt durch Nummernabstand.
-// Der Wert einer Kategorie ist der FNV-1a-Hash von „<NAMENSRAUM>_<NAME>", also
-// „WRN_HOST_OP_FAILED" gegen „ERR_HOST_OP_FAILED" — zwei verschiedene Zahlen. Der frueher
-// noetige Fuellbereich (WRN 4..15) und der eigene Nummernbereich ab 16 sind damit
-// gegenstandslos und ersatzlos entfallen.
+// EINE KREUZUNG IST NICHT MOEGLICH, und zwar strukturell statt durch Nummernabstand. Der Wert
+// einer Kategorie ist der FNV-1a-Hash von „<NAMENSRAUM>_<NAME>", also „WRN_HOST_OP_FAILED"
+// gegen „ERR_HOST_OP_FAILED" — zwei verschiedene Zahlen.
 //
 // Und der Namensraum MUSS im gehashten String stehen: er trennt die Konstanten dort, wo sie
 // GESCHRIEBEN werden, aber nichts trennt sie dort, wo der Wert NACHGESCHLAGEN wird. Waere nur
@@ -1286,16 +1294,15 @@ inline void error(uint32_t cat, const char* system, uint32_t entity) {
 // Marke: ein plausibler falscher Hilfetext ist teurer als ein sichtbar unbekannter, weil der
 // Leser eine gueltige Kategorie sieht und nicht nachprueft.
 //
-// Und die Hilfetexte sagen dort weiterhin NICHTS ueber den Kontrollfluss zu. Der frueher hier
-// stehende Satz („Fix: Value will be clamped to valid range") behauptete, was NACH der Meldung
-// geschieht — das kann eine Kategorie nicht wissen: sie beschreibt den ZUSTAND eines Wertes,
-// nicht die Reaktion des Aufrufers. Eine Bereichspruefung, die NICHT klemmt, fiel dadurch
-// faelschlich durch.
+// Und die Hilfetexte sagen dort NICHTS ueber den Kontrollfluss zu. Ein Satz wie „Fix: Value
+// will be clamped to valid range" behauptet, was NACH der Meldung geschieht — das kann eine
+// Kategorie nicht wissen: sie beschreibt den ZUSTAND eines Wertes, nicht die Reaktion des
+// Aufrufers. Eine Bereichspruefung, die NICHT klemmt, fiele dadurch faelschlich durch.
 
 // Categorized warning for out-of-range values
 inline void warn(uint32_t cat, const char* system, uint32_t owner, const char* value_id, float value, float min, float max) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->warn("[{}] {}: owner={}, value_id='{}', value={}, range=[{},{}]. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->warn("[{}] {}: owner={}, value_id='{}', value={}, range=[{},{}]. {}{}",
             system, detail::get_wrn_cat_name(cat), owner, value_id, value, min, max, detail::get_wrn_cat_short(cat), detail::get_wrn_cat_tail(cat));
     }
 }
@@ -1330,8 +1337,8 @@ inline void warn(uint32_t cat, const char* system, uint32_t owner, const char* v
 // glauben zu muessen. Ein Verweis, den man aufschlagen MUSS, wird nicht aufgeschlagen.
 inline void error(uint32_t cat, const char* system, const char* value_id,
                   float value, float min, float max) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->error("[{}] {}: value_id='{}', value={}, range=[{},{}]{}. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->error("[{}] {}: value_id='{}', value={}, range=[{},{}]{}. {}{}",
             system, detail::get_cat_name(cat), value_id, value, min, max,
             detail::get_cat_suffix(cat), detail::get_cat_short(cat), detail::get_cat_tail(cat));
     }
@@ -1339,22 +1346,21 @@ inline void error(uint32_t cat, const char* system, const char* value_id,
 
 inline void warn(uint32_t cat, const char* system, const char* value_id,
                  float value, float min, float max) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->warn("[{}] {}: value_id='{}', value={}, range=[{},{}]. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->warn("[{}] {}: value_id='{}', value={}, range=[{},{}]. {}{}",
             system, detail::get_wrn_cat_name(cat), value_id, value, min, max,
             detail::get_wrn_cat_short(cat), detail::get_wrn_cat_tail(cat));
     }
 }
 
-// ERR-Haelfte der owner-behafteten Bereichsform. Bis 2026-08-23 gab es sie nur als `warn`, und
-// eine Stelle, die einen Verbrauch gegen einen Deckel meldete, verlor dadurch ZWEI Dinge: die
-// Untergrenze („X von Y" statt „X in [0,Y]") UND den Besitzer, weil die Aggregatform keinen
-// owner-Slot hat. Der Nachbarzweig derselben Funktion behielt den Besitzer — der Unterschied
-// zwischen beiden war nicht die Semantik, sondern die Verfuegbarkeit einer Form.
+// ERR-Haelfte der owner-behafteten Bereichsform. Eine Stelle, die einen Verbrauch gegen einen
+// Deckel meldet, behaelt mit ihr die Untergrenze („X in [0,Y]" statt „X von Y") UND den Besitzer,
+// den die Aggregatform nicht fuehrt. Der Unterschied zwischen ihr und ihrem Nachbarzweig ist die
+// Semantik, nie die Verfuegbarkeit einer Form.
 inline void error(uint32_t cat, const char* system, uint32_t owner, const char* value_id,
                   float value, float min, float max) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->error("[{}] {}: owner={}, value_id='{}', value={}, range=[{},{}]. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->error("[{}] {}: owner={}, value_id='{}', value={}, range=[{},{}]. {}{}",
             system, detail::get_cat_name(cat), owner, value_id, value, min, max,
             detail::get_cat_short(cat), detail::get_cat_tail(cat));
     }
@@ -1362,8 +1368,8 @@ inline void error(uint32_t cat, const char* system, uint32_t owner, const char* 
 
 // Categorized warning for negative values
 inline void warn(uint32_t cat, const char* system, uint32_t owner, const char* value_id, float value) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->warn("[{}] {}: owner={}, value_id='{}', value={}. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->warn("[{}] {}: owner={}, value_id='{}', value={}. {}{}",
             system, detail::get_wrn_cat_name(cat), owner, value_id, value, detail::get_wrn_cat_short(cat), detail::get_wrn_cat_tail(cat));
     }
 }
@@ -1371,16 +1377,16 @@ inline void warn(uint32_t cat, const char* system, uint32_t owner, const char* v
 // Categorized warning WITHOUT a numeric value.
 //
 // Die beiden Ueberladungen darueber verlangen einen `float value` - fuer eine Warnung, deren
-// Gegenstand KEINE Zahl ist, gab es bis hierher keine kategorisierte Form, und die Faelle
-// landeten deshalb als freier String im Log. Gemessen an ase-pl-webserver: ein fehlender
-// HTTP-Header und ein fehlgeschlagener HMAC haben nichts, was man in `value` einsetzen
-// koennte, ohne etwas zu erfinden.
+// Gegenstand KEINE Zahl ist, ist dies die kategorisierte Form; ohne sie bliebe eine solche Zeile
+// ein freier String. Gemessen an ase-pl-webserver: ein fehlender HTTP-Header und ein
+// fehlgeschlagener HMAC haben nichts, was man in `value` einsetzen koennte, ohne etwas zu
+// erfinden.
 //
 // KEIN `owner`, und das ist Absicht: der Ausloeser ist ein fremder Aufrufer, kein Hub-Owner.
 // Ein owner-Feld an dieser Stelle waere eine Einladung, eine Entity-ID zu erfinden.
 inline void warn(uint32_t cat, const char* system, const char* value_id) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->warn("[{}] {}: value_id='{}'. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->warn("[{}] {}: value_id='{}'. {}{}",
             system, detail::get_wrn_cat_name(cat), value_id, detail::get_wrn_cat_short(cat), detail::get_wrn_cat_tail(cat));
     }
 }
@@ -1388,10 +1394,9 @@ inline void warn(uint32_t cat, const char* system, const char* value_id) {
 // Categorized warning for an AGGREGATE over a set - a count against its population.
 //
 // Die beiden wert-tragenden Ueberladungen oben verlangen `uint32_t owner`. Eine Meldung, die
-// ueber eine MENGE zaehlt, hat keinen: sie gehoert keiner Entity, sondern dem Durchlauf. Bis
-// hierher blieben solche Zeilen als freier String stehen, weil jede kategorisierte Form einen
-// Owner erfunden haette - und eine erfundene Entity-ID im Log ist teurer als der freie String,
-// den sie ersetzt.
+// ueber eine MENGE zaehlt, hat keinen: sie gehoert keiner Entity, sondern dem Durchlauf. Jede
+// kategorisierte Form mit Besitzer haette einen Owner erfunden - und eine erfundene Entity-ID im
+// Log ist teurer als der freie String, den sie ersetzt.
 //
 // ZWEI Zahlen und nicht eine, weil die AUSSAGE das Verhaeltnis ist: „3 von 512" und „3 von 4"
 // sind derselbe Zaehlstand und zwei verschiedene Lagen. Bewusst NICHT die 7-Argument-Form mit
@@ -1400,8 +1405,8 @@ inline void warn(uint32_t cat, const char* system, const char* value_id) {
 // Anzahl steht - eine Falschaussage in der strukturierten Form, und die wird von Werkzeugen
 // gelesen und geglaubt, waehrend ein freier String nur von Menschen gelesen wird.
 inline void warn(uint32_t cat, const char* system, const char* value_id, float count, float population) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->warn("[{}] {}: value_id='{}', count={} of {}. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->warn("[{}] {}: value_id='{}', count={} of {}. {}{}",
             system, detail::get_wrn_cat_name(cat), value_id, count, population,
             detail::get_wrn_cat_short(cat), detail::get_wrn_cat_tail(cat));
     }
@@ -1410,10 +1415,10 @@ inline void warn(uint32_t cat, const char* system, const char* value_id, float c
 // Dieselbe Aggregatform auf FEHLEREBENE. Die Begruendung oben gilt unveraendert - hier steht
 // nur, warum es sie zweimal geben MUSS.
 //
-// Die Form existierte bis hierher nur unter WRN, und die passende Kategorie fuer den haeufigsten
-// Fall (eine Bahn ist voll, N von M verworfen) nur unter ERR: zwei Haelften an entgegengesetzten
-// Enden. Eine Stelle dazwischen hatte drei Wege, und alle drei waren verboten - die Ebene
-// wechseln (Code an den Detektor anpassen), die Kategorie verbiegen (Falschaussage) oder als
+// Die passende Kategorie fuer den haeufigsten Fall (eine Bahn ist voll, N von M verworfen) ist
+// eine ERR-Kategorie. Stuende die Form nur unter WRN, laegen die zwei Haelften an
+// entgegengesetzten Enden, und eine Stelle dazwischen haette drei Wege, alle drei verboten - die
+// Ebene wechseln (Code an den Detektor anpassen), die Kategorie verbiegen (Falschaussage) oder als
 // freier String stehen bleiben. Belegt an terrain_dlt_pub_sys.cpp und an
 // capacity_orch_node_stat_sys.cpp (ase-pl-capacity-orch), wo der Dateikommentar die zwei Zahlen
 // ausdruecklich als die Aussage benennt ("Names the REAL event ... Never silent").
@@ -1422,42 +1427,39 @@ inline void warn(uint32_t cat, const char* system, const char* value_id, float c
 // endet der Vorgang, dort laeuft er weiter. Wer das verwechselt, nimmt seine Zeile aus dem
 // Strom, in dem sie gesucht wird.
 inline void error(uint32_t cat, const char* system, const char* value_id, float count, float population) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->error("[{}] {}: value_id='{}', count={} of {}{}. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->error("[{}] {}: value_id='{}', count={} of {}{}. {}{}",
             system, detail::get_cat_name(cat), value_id, count, population,
             detail::get_cat_suffix(cat), detail::get_cat_short(cat), detail::get_cat_tail(cat));
     }
 }
 
-// ============================================================================
-// Ergaenzende Formen — ADDITIONEN. Keine bestehende Signatur ist angefasst.
-// ============================================================================
+// ERGAENZENDE FORMEN
 //
 // Jede traegt ihre ABGRENZUNG, nicht nur ihren Zweck: der Text hier ist das, was ein Aufrufer
 // vor der Formwahl liest, und eine Form ohne Abgrenzung wird zum Sammelbecken.
 
 // EIN Wert, KEIN Besitzer. Die haeufigste Luecke im Baum.
 //
-// Die ERR-Familie hatte bis hier DREI Formen und KEINE mit einem Wertfeld, waehrend die
-// WRN-Familie drei von vier mit Wert kennt. Jede kategorisierte Fehlerzeile, die eine Zahl
-// nennt, hatte deshalb nur zwei Auswege: die Zahl verlieren oder auf `warn` heruntergehen —
-// und der zweite nimmt die Zeile aus dem Fehlerstrom, in dem sie gesucht wird.
+// Ohne diese Form haette jede kategorisierte Fehlerzeile, die eine Zahl nennt, nur zwei
+// Auswege: die Zahl verlieren oder auf `warn` heruntergehen — und der zweite nimmt die Zeile
+// aus dem Fehlerstrom, in dem sie gesucht wird.
 //
 // Gegen die 5-Argument-Form mit `owner` abgegrenzt: die hier ist fuer Stellen OHNE Entity —
 // ein Dekodierhelfer, der vor jeder Entity laeuft, eine Puffergrenze, ein HTTP-Aufruf. Einen
 // Owner zu erfinden waere teurer als der freie String, den die Form ersetzt: `0` ist eine
 // gueltige entt-Id, die Zeile zeigte also auf eine fremde Entity.
 inline void error(uint32_t cat, const char* system, const char* value_id, float value) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->error("[{}] {}: value_id='{}', value={}{}. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->error("[{}] {}: value_id='{}', value={}{}. {}{}",
             system, detail::get_cat_name(cat), value_id, value,
             detail::get_cat_suffix(cat), detail::get_cat_short(cat), detail::get_cat_tail(cat));
     }
 }
 
 inline void warn(uint32_t cat, const char* system, const char* value_id, float value) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->warn("[{}] {}: value_id='{}', value={}. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->warn("[{}] {}: value_id='{}', value={}. {}{}",
             system, detail::get_wrn_cat_name(cat), value_id, value,
             detail::get_wrn_cat_short(cat), detail::get_wrn_cat_tail(cat));
     }
@@ -1466,19 +1468,19 @@ inline void warn(uint32_t cat, const char* system, const char* value_id, float v
 // EIN Wert NEBEN dem Besitzer, auf Fehlerebene — das Gegenstueck zur WRN-Form mit owner.
 inline void error(uint32_t cat, const char* system, uint32_t owner, const char* value_id,
                   float value) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->error("[{}] {}: owner={}, value_id='{}', value={}. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->error("[{}] {}: owner={}, value_id='{}', value={}. {}{}",
             system, detail::get_cat_name(cat), owner, value_id, value,
             detail::get_cat_short(cat), detail::get_cat_tail(cat));
     }
 }
 
-// Besitzer OHNE Wert auf WRN — die Spiegelluecke zur gleichnamigen ERR-Form.
+// Besitzer OHNE Wert auf WRN — die fehlende Entsprechung zur gleichnamigen ERR-Form.
 // Fuer Warnungen, bei denen die Entity die Aussage traegt und es gar keinen Wert gibt:
 // „Ausgangsschlange dieses Besitzers ist voll", „Zeile dieses Besitzers verworfen".
 inline void warn(uint32_t cat, const char* system, uint32_t owner, const char* value_id) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->warn("[{}] {}: owner={}, value_id='{}'. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->warn("[{}] {}: owner={}, value_id='{}'. {}{}",
             system, detail::get_wrn_cat_name(cat), owner, value_id,
             detail::get_wrn_cat_short(cat), detail::get_wrn_cat_tail(cat));
     }
@@ -1495,16 +1497,16 @@ inline void warn(uint32_t cat, const char* system, uint32_t owner, const char* v
 // `value_id`; ein wechselnder Wert dort macht jede Zeile zu einem eigenen Schluessel und
 // zerstoert genau die Zaehlbarkeit, für die es die Kategorie gibt.
 inline void error(uint32_t cat, const char* system, const char* value_id, const char* detail) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->error("[{}] {}: value_id='{}'{}, detail='{}'. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->error("[{}] {}: value_id='{}'{}, detail='{}'. {}{}",
             system, detail::get_cat_name(cat), value_id, detail::get_cat_suffix(cat),
             detail, detail::get_cat_short(cat), detail::get_cat_tail(cat));
     }
 }
 
 inline void warn(uint32_t cat, const char* system, const char* value_id, const char* detail) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->warn("[{}] {}: value_id='{}', detail='{}'. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->warn("[{}] {}: value_id='{}', detail='{}'. {}{}",
             system, detail::get_wrn_cat_name(cat), value_id, detail,
             detail::get_wrn_cat_short(cat), detail::get_wrn_cat_tail(cat));
     }
@@ -1514,8 +1516,8 @@ inline void warn(uint32_t cat, const char* system, const char* value_id, const c
 // Der haeufige Fall ist eine abgewiesene Anfrage: die Entity sagt WELCHE, `detail` sagt WARUM.
 inline void error(uint32_t cat, const char* system, uint32_t owner, const char* value_id,
                   const char* detail) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->error("[{}] {}: owner={}, value_id='{}', detail='{}'. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->error("[{}] {}: owner={}, value_id='{}', detail='{}'. {}{}",
             system, detail::get_cat_name(cat), owner, value_id, detail,
             detail::get_cat_short(cat), detail::get_cat_tail(cat));
     }
@@ -1523,8 +1525,8 @@ inline void error(uint32_t cat, const char* system, uint32_t owner, const char* 
 
 inline void warn(uint32_t cat, const char* system, uint32_t owner, const char* value_id,
                  const char* detail) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->warn("[{}] {}: owner={}, value_id='{}', detail='{}'. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->warn("[{}] {}: owner={}, value_id='{}', detail='{}'. {}{}",
             system, detail::get_wrn_cat_name(cat), owner, value_id, detail,
             detail::get_wrn_cat_short(cat), detail::get_wrn_cat_tail(cat));
     }
@@ -1546,8 +1548,8 @@ inline void warn(uint32_t cat, const char* system, uint32_t owner, const char* v
 // das Log druckt einen abgeschnittenen Schluessel.
 inline void error(uint32_t cat, const char* system, uint32_t owner, uint32_t subject,
                   const char* value_id) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->error("[{}] {}: owner={}, subject={}, value_id='{}'. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->error("[{}] {}: owner={}, subject={}, value_id='{}'. {}{}",
             system, detail::get_cat_name(cat), owner, subject, value_id,
             detail::get_cat_short(cat), detail::get_cat_tail(cat));
     }
@@ -1555,8 +1557,8 @@ inline void error(uint32_t cat, const char* system, uint32_t owner, uint32_t sub
 
 inline void warn(uint32_t cat, const char* system, uint32_t owner, uint32_t subject,
                  const char* value_id) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->warn("[{}] {}: owner={}, subject={}, value_id='{}'. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->warn("[{}] {}: owner={}, subject={}, value_id='{}'. {}{}",
             system, detail::get_wrn_cat_name(cat), owner, subject, value_id,
             detail::get_wrn_cat_short(cat), detail::get_wrn_cat_tail(cat));
     }
@@ -1587,8 +1589,8 @@ inline void warn(uint32_t cat, const char* system, uint32_t owner, uint32_t subj
 // nennt die Stelle, die sie braucht.
 inline void error(uint32_t cat, const char* system, uint32_t owner, uint32_t subject,
                   const char* value_id, float count, float population) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->error("[{}] {}: owner={}, subject={}, value_id='{}', count={} of {}. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->error("[{}] {}: owner={}, subject={}, value_id='{}', count={} of {}. {}{}",
             system, detail::get_cat_name(cat), owner, subject, value_id, count, population,
             detail::get_cat_short(cat), detail::get_cat_tail(cat));
     }
@@ -1596,8 +1598,8 @@ inline void error(uint32_t cat, const char* system, uint32_t owner, uint32_t sub
 
 inline void warn(uint32_t cat, const char* system, uint32_t owner, uint32_t subject,
                  const char* value_id, float count, float population) {
-    if (LogSystem::logger()) {
-        LogSystem::logger()->warn("[{}] {}: owner={}, subject={}, value_id='{}', count={} of {}. {}{}",
+    if (internal::logger_slot()) {
+        internal::logger_slot()->warn("[{}] {}: owner={}, subject={}, value_id='{}', count={} of {}. {}{}",
             system, detail::get_wrn_cat_name(cat), owner, subject, value_id, count, population,
             detail::get_wrn_cat_short(cat), detail::get_wrn_cat_tail(cat));
     }

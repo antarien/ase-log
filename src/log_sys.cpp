@@ -7,9 +7,10 @@
  * @layer       1 (Core)
  * @category    process/computation
  * @schedule    Initialization
+ * @usecase     usecase:100361 - open the log sinks
  * @created     2026-01-09
- * @modified    2026-08-30
- * @version     1.1.0
+ * @modified    2026-10-11
+ * @version     1.2.0
  *
  * CAUSAL CHAIN (CAUSA_LOG_SINKS: die Senken entstehen und vergehen)
  *
@@ -41,13 +42,11 @@
  *
  * FLYWEIGHT PATTERN (spdlog-Senken als shared_ptr, nicht in Components)
  *
- *   Die Senken sind Fremdobjekte aus spdlog und leben in Dateibereichs-Zeigern, nicht in der
+ *   Die Senken sind Fremdobjekte aus spdlog und leben im LogResourceManager, nicht in der
  *   Registry. Sie muessen VOR dem ersten log-Aufruf existieren und NACH dem letzten noch — also
  *   ausserhalb jeder Entity-Lebenszeit.
  *
- * WAS AM 2026-08-30 AUS DIESER DATEI GEZOGEN WURDE, UND WARUM DER ABNEHMER ES ENTSCHIED
- *
- *   Sie stand bei 767 Zeilen im Band und trug drei Dinge, die verschiedene Programme benutzen:
+ * WO DIE NACHBARN DIESES SYSTEMS STEHEN
  *
  *     src/log_boot.cpp        install_capture_logger, finalize_logger_after_boot,
  *                             parse_cli_filter_from_argv — der UEBERGANG vom "es gibt noch
@@ -57,38 +56,26 @@
  *                             fuer Programme, in denen es KEINEN Kernel gibt (ase-edge-daemon,
  *                             ase-cli).
  *     internal/               make_rotating_file_sink — die eine Bauform der Datei-Senke, die
- *      log_resource_manager   on_start und beide Standalone-Einstiege brauchen. Sie stand im
- *                             anonymen Namensraum und konnte deshalb keine Dateigrenze
- *                             ueberschreiten; kopieren waere die zweite Wahrheit gewesen.
+ *      log_resource_manager   on_start und beide Standalone-Einstiege brauchen, dazu die
+ *                             Logger-Slots (internal::logger_slot, client_logger_slot): ein
+ *                             Durchreicher gehoert zu dem, wohin er reicht.
+ *     src/log_query.cpp       recent_logs — der LESEZUGRIFF auf den Ring.
  *
- *   Die Logger-Slots (internal::logger_slot, client_logger_slot) sind mit demselben Schnitt nach
- *   src/log_resource_manager.cpp gegangen: sie reichen nur den Slot des Managers durch, und ein
- *   Durchreicher gehoert zu dem, wohin er reicht.
- *
- *   Was BLEIBT, ist der Systemvertrag: on_start baut die drei echten Senken und PARKT sie am
+ *   Diese Datei traegt den Systemvertrag: on_start baut die drei echten Senken und PARKT sie am
  *   ResourceManager, on_stop raeumt im kontrollierten Abstieg ab. Die andere Haelfte der
  *   Park-Logik — das Abholen und Einspielen — steht in log_boot.cpp, und der Kanal zwischen
  *   beiden ist der Manager, nicht eine gemeinsame Datei.
  *
- * WARUM DIESE DATEI STRUKTURELL ANDERS AUSSIEHT ALS JEDES ANDERE SYSTEM (2026-08-20)
+ * WARUM DIESE DATEI STRUKTURELL ANDERS AUSSIEHT ALS JEDES ANDERE SYSTEM
  *
  *   Der Validator meldet hier strukturelle Befunde, die nicht Nachlaessigkeit sind, sondern die
  *   Bauform der Sache. Die Regeln, die sie ausloesen, richten sich an die VERBRAUCHER von
  *   log::* — und diese Datei IST log::*:
  *
  *     shared_ptr / unique_ptr    die spdlog-Senken, Fremdobjekte mit eigener Lebenszeit
- *     file-level static          der globale Logger und der Bootstrap-Ringpuffer
  *     atomic / Mutex             ase-log ist der EINZIGE Weg, aus einem fremden Thread zu
- *                                loggen; ohne Sperre waere jede Callback-Meldung ein Datenrennen
- *     Zeitbibliothek             ERLEDIGT 2026-08-22, und der Weg dorthin ist lehrreich: hier
- *                                stand zweimal eine Begruendung, warum die Umrechnung eines
- *                                fremden Zeitstempels unvermeidbar sei. Beide Fassungen waren
- *                                richtig ueber die Umrechnung und falsch ueber die Frage —
- *                                denn die Klasse, die sie brauchte, war NIE registriert. Das
- *                                Muster erzeugte denselben Zeitstempel laengst selbst.
- *                                Eine Begruendung kann in jedem Detail stimmen und trotzdem
- *                                die falsche Frage beantworten: nicht "wie rechne ich das um",
- *                                sondern "rechnet das ueberhaupt noch jemand".
+ *                                loggen; ohne Sperre waere jede Callback-Meldung ein Datenrennen.
+ *                                Beides liegt im LogResourceManager, nicht in diesem System.
  *     "Static System calls"      `log::error(...)` IST dieser statische Aufruf
  *
  *   Die Gegenprobe ist gemacht: log_sys.cpp ist ein echtes ECS-System (on_start/tick/on_stop,
@@ -194,53 +181,40 @@
 // ALLOWED:   <cstdint>, <cmath>, <cassert>, ase-* headers
 
 // Own header FIRST
+#include <ase/log/systems/log_sys.hpp>
 
 #include <ase/log/log.hpp>
 #include <ase/log/log_lifecycle.hpp>  // install_capture_logger, finalize_logger_after_boot
 #include <ase/log/log_module.hpp>
-// Die Rotations- und Aufbewahrungs-SSOT, seit 2026-08-31 ein eigener Header.
+// Die Rotations- und Aufbewahrungs-SSOT.
 #include <ase/log/log_quota.hpp>
 #include <ase/log/internal/log_files.hpp>
 #include <ase/log/internal/log_resource_manager.hpp>
 #include <ase/containers/vector.hpp>
-// DIE REGISTRY DER BIBLIOTHEK, hier SELBST eingebunden seit 2026-08-31. Diese Datei ruft
-// register_logger und shutdown; bis dahin bekam sie beide GESCHENKT, weil log.hpp den
-// Dachheader zog. Der ist dort entfallen — und dieselbe Zeile, die 2224 Uebersetzungseinheiten
-// die Registry aufdraengte, steht jetzt bei der EINEN, die sie wirklich braucht.
+// DIE REGISTRY DER BIBLIOTHEK, hier SELBST eingebunden: diese Datei ruft register_logger und
+// shutdown. log.hpp zieht den Dachheader nicht — die Zeile steht bei der EINEN Datei, die die
+// Registry wirklich braucht, nicht in jeder Uebersetzungseinheit, die eine Zeile schreibt.
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/callback_sink.h>
 #include <spdlog/sinks/ringbuffer_sink.h>
 
-// WAS MIT DEN FORMATIERERN WEGGEFALLEN IST, gemessen und nicht geraten: <ase/log/log_display.hpp>
-// (detail::display_timestamp_sgr), die drei Musterflaggen, <ase/utils/strops.hpp>
-// (str_copy/str_append) und <spdlog/pattern_formatter.h>. Alle vier stehen seit 2026-08-31 in
-// internal/log_resource_manager.cpp, zusammen mit den Fabriken selbst — die Zwischenstationen
-// internal/log_format und internal/log_sinks gibt es nicht mehr: sie gaben den Bibliothekstyp in
-// ihrer oeffentlichen Signatur zurueck und EXPORTIERTEN spdlog damit aus dem Wrapper heraus.
+// Die Formatierer samt ihren Musterflaggen, <ase/log/log_display.hpp> und <ase/utils/strops.hpp>
+// stehen in internal/log_resource_manager.cpp bei den Fabriken selbst; diese Datei ruft nur
+// make_file_formatter und make_ring_formatter.
 
 namespace ase::log {
 using namespace entt::literals;  // For "_hs hashed strings (Hub)
 
 // Die Capture-Klammer (capture_begin/count/entry/end) und ihre Queue-Senke liegen in
-// src/log_capture.cpp, nicht hier. Grund ist derselbe wie beim Auszug von log_files.cpp: diese
-// Datei stand bei 781 Zeilen, und das Schreibtor laesst eine Datei nahe dem 800er-Deckel nur
-// bearbeiten, solange sie nicht WAECHST. Die Klammer haette sie auf 869 gebracht.
-// Der Deckel misst keine Laenge, sondern eine fehlende Trennung — und eine Senke, die den
-// Logausgang fuer die Dauer einer Fortschrittstabelle umhaengt, ist eine eigene Aufgabe.
+// src/log_capture.cpp, nicht hier: eine Senke, die den Logausgang fuer die Dauer einer
+// Fortschrittstabelle umhaengt, ist eine eigene Aufgabe.
 
-// VERSCHOBEN 2026-08-20 nach src/log_files.cpp: Projektwurzel, Logverzeichnis, Rotationsquota,
-// das Aufraeumen alter Dateien und die Politik der Datei-Senke. Diese Datei trug zwei
-// Aufgaben — das Logging-SYSTEM und die Verwaltung seiner DATEIEN —, und der God-System-Deckel
-// hat genau das gemeldet: keine Laenge, sondern eine fehlende Trennung.
+// Projektwurzel, Logverzeichnis, Rotationsquota, das Aufraeumen alter Dateien und die Politik
+// der Datei-Senke stehen in src/log_files.cpp.
 //
-// DER NAME, DER WEITERHIN VON HIER GEBRAUCHT WIRD, IST internal::resolve_log_path, und er steht
-// in <ase/log/internal/log_files.hpp>. Bis 2026-08-30 nannte diese Stelle daneben ein zweites
-// Mal internal::make_rotating_file_sink als dort liegend — das war FALSCH und ist gemessen:
-// log_files.hpp:83 sagt selbst, in der Vergangenheitsform, "hier stand make_rotating_file_sink",
-// aufgeloest am 2026-08-22 in prepare_log_sink, das nur noch die Politik traegt. Der Kopf nannte
-// also einen Namen an einem Ort, an dem es ihn nicht gab, waehrend eine gleichnamige LOKALE
-// Fassung zwanzig Zeilen weiter unten stand. Seit dem Schnitt gibt es den Namen wirklich, in
-// <ase/log/internal/log_resource_manager.hpp>, die lokale Fassung ist dorthin gewandert.
+// DER NAME, DER VON HIER GEBRAUCHT WIRD, IST internal::resolve_log_path, und er steht in
+// <ase/log/internal/log_files.hpp>. internal::make_rotating_file_sink steht in
+// <ase/log/internal/log_resource_manager.hpp>.
 //
 // Die oeffentliche Quota-API (log_dir_path, log_quota, set_log_quota) wird in dieser Datei gar
 // nicht gerufen — sie gehoert Aufrufern ausserhalb.
@@ -248,48 +222,11 @@ using namespace entt::literals;  // For "_hs hashed strings (Hub)
 using internal::make_rotating_file_sink;
 using internal::resolve_log_path;
 
-// AUSGEZOGEN 2026-08-24, seit 2026-08-31 in src/log_capture.cpp: ColoredLevelFlag (%*),
-// PlainLevelFlag (%#) und der neue SemanticMessageFlag (%~). Die Flags sind die EINE Stelle,
-// an der die Bytes eines Kanals entstehen; sie sind bewusst spdlog-gebunden — die Bibliothek
-// verlangt fuer eine Musterflagge Vererbung UND clone(), beides ist ohne sie nicht zu haben.
-//
-// SEIT DEM 2026-08-30 WERDEN SIE HIER NICHT MEHR GENANNT: die Formatierer, die sie anhaengen,
-// stehen bei ihnen — vier Fabriken fuer vier Kanaele, mit vier Aufrufstellen in drei Dateien.
-// Diese Datei ruft nur noch make_file_formatter und make_ring_formatter.
-
-// GELOESCHT 2026-08-22: GrayTimestampFlag.
-//
-// Die Klasse baute den grauen Zeitstempel Feld fuer Feld nach und wurde NIE registriert —
-// gemessen ueber den ganzen Baum, null `add_flag<GrayTimestampFlag>`, waehrend die beiden
-// Nachbarn ColoredLevelFlag und PlainLevelFlag auf fuenf Registrierungen kommen.
-//
-// Ihre Ausgabe erzeugen die Muster selbst, und zwar Byte fuer Byte dieselbe:
-//     Klasse:  "\033[38;5;242m[%04d-%02d-%02d %02d:%02d:%02d.%03d]\033[0m"
-//     Muster:  "\x1b[38;5;242m[%Y-%m-%d %H:%M:%S.%e]\x1b[0m"
-// \033 und \x1b sind dasselbe Zeichen; %e IST die Millisekunde. Der Farbwert 242 steht in
-// beiden. Die Klasse wurde also durch das Muster ERSETZT und nur nicht mitgeloescht.
-//
-// Der graue Zeitstempel bleibt unveraendert sichtbar (Betreiber-Entscheid 2026-08-11 zum
-// vollen Farbformat in der Datei): er kommt aus dem Muster, nicht aus dieser Klasse.
-
-// Static member definitions
-std::string LogSystem::g_log_path_;
-std::shared_ptr<spdlog::sinks::sink> LogSystem::g_ringbuffer_sink_ = nullptr;
-std::atomic<uint32_t> LogSystem::g_log_counter_{0};
-
-/**
- * Anonymous namespace for helper FUNCTIONS (NOT static!)
- * NO STRUCTS HERE! Structs = Data = Components!
- *
- * LEER SEIT DEM SCHNITT VOM 2026-08-30, und die Leere ist eine Aussage: die beiden Helfer dieser
- * Datei hatten MEHR Aufrufer als diese Datei. make_rotating_file_sink wird von on_start und von
- * beiden Standalone-Einstiegen gebraucht, der Formatierbau von vier Stellen in drei Dateien —
- * eine Funktion im anonymen Namensraum ueberschreitet aber keine Dateigrenze. Beide stehen jetzt
- * in internal/log_resource_manager.hpp und werden von hier nur gerufen.
- */
-namespace {
-
-}  // namespace
+// Die Musterflaggen ColoredLevelFlag (%*), PlainLevelFlag (%#) und SemanticMessageFlag (%~)
+// stehen in src/log_capture.cpp. Sie sind die EINE Stelle, an der die Bytes eines Kanals
+// entstehen, und bewusst spdlog-gebunden — die Bibliothek verlangt fuer eine Musterflagge
+// Vererbung UND clone(), beides ist ohne sie nicht zu haben. Die Formatierer, die sie anhaengen,
+// stehen bei ihnen — vier Fabriken fuer vier Kanaele.
 
 /**
  * Anonymous namespace for helper FUNCTIONS (NOT static!)
@@ -298,31 +235,24 @@ namespace {
  *   ❌ static void helper() {...}          // WRONG!
  * NO STRUCTS HERE! Structs = Data = Components!
  */
-// FUENF DATEIBEREICHS-ZEIGER SIND 2026-08-22 IN DEN RESOURCEMANAGER GEWANDERT.
-//
-// Hier standen der typisierte HTTP-Ring, der Aufnahme-Ring der Startphase und die drei geparkten
-// Senken. Sie halten Fremdobjekte mit eigener Lebenszeit — genau der Fall, fuer den
+namespace {
+
+}  // namespace
+
+// DER TYPISIERTE HTTP-RING, DER AUFNAHME-RING DER STARTPHASE UND DIE DREI GEPARKTEN SENKEN liegen
+// im ResourceManager. Sie halten Fremdobjekte mit eigener Lebenszeit — genau der Fall, fuer den
 // WRFL_ASE_FLYWEIGHT.md Section 1 den ResourceManager vorsieht: der Besitz lebt ausserhalb, der
-// Zugriff laeuft ueber eine Fassade. Erreichbar ueber internal::log_resources().
+// Zugriff laeuft ueber eine Fassade. Erreichbar ueber internal::log_resources(). Dasselbe gilt
+// fuer den Zeilenzaehler: das System haelt keinen Zustand.
 //
-// DIE PARK-LOGIK BLEIBT WORTGLEICH DIESELBE, sie steht jetzt am Manager: on_start BAUT alle drei
-// echten Senken, haengt sie aber NICHT ein. Waehrend des Startblocks traegt der Logger NUR den
-// Aufnahme-Ring, sodass jede Zeile — auch die aus dem on_start jedes anderen Systems — in dasselbe
-// eine Ziel faellt: kein Kanal ist halb offen, keiner verliert Eintraege, nichts mischt sich in die
-// Fortschrittstabelle auf stdout. finalize_logger_after_boot (src/log_boot.cpp) haengt dann alle
-// drei auf einmal ein und spielt den Ring in jede hinein, sodass Datei, HTTP-Ring und Zaehler
-// denselben Inhalt tragen.
+// DIE PARK-LOGIK steht am Manager: on_start BAUT alle drei echten Senken, haengt sie aber NICHT
+// ein. Waehrend des Startblocks traegt der Logger NUR den Aufnahme-Ring, sodass jede Zeile — auch
+// die aus dem on_start jedes anderen Systems — in dasselbe eine Ziel faellt: kein Kanal ist halb
+// offen, keiner verliert Eintraege, nichts mischt sich in die Fortschrittstabelle auf stdout.
+// finalize_logger_after_boot (src/log_boot.cpp) haengt dann alle drei auf einmal ein und spielt
+// den Ring in jede hinein, sodass Datei, HTTP-Ring und Zaehler denselben Inhalt tragen.
 // KEINE stdout-Senke (Betreiber-Entscheid 2026-08-11): das Logverzeichnis ist das einzige Ziel,
 // eine Konsole liest es als tail auf der Datei.
-
-// GELOESCHT 2026-08-22: LogSystem::LogSystem(const std::string&, const std::string&) — UNAUFRUFBAR.
-// `App::add_system(Schedule)` nimmt nur den Schedule, es gibt keinen Weg, einem System
-// Konstruktorargumente mitzugeben; das `add_system_with<LogSystem>` in log_module.hpp baut den
-// Default. Beide Felder werden ohnehin anders gesetzt (log_file_ aus der LogConfig in on_start,
-// logger_name_ bleibt "ASE").
-// Von 1576 System-Headern im Baum trug GENAU DIESER einen Konstruktor mit Argumenten — der
-// vermutete Torfehler war der einzige Ausreisser des Baums. Die Deklaration in log.hpp samt der
-// aufruferlosen set_name/set_log_file gehoert einer anderen Sitzung und ist ihr gemeldet.
 
 // SYSTEM IMPLEMENTATION (ORDER: on_start → tick → on_stop)
 // ALL THREE METHODS MUST BE IMPLEMENTED - NO EXCEPTIONS!
@@ -333,23 +263,17 @@ void LogSystem::on_start(ecs::Registry& registry) {
     // KernelCmdSystem via run_after in LogModule::build. No fallback — a
     // missing LogConfig is a boot bug and must fail fast (entt-assert).
     auto& cfg = registry.ctx().get<LogConfig>();
-    // cfg.label is a char[] already; the old code built a std::string from it only to
-    // concatenate it into the pattern below. The label is now carried as a plain pointer
-    // and the pattern assembled in a stack buffer with ase::utils::strops - no heap
-    // allocation for a string that lives for two statements. The std::string appears only
-    // where spdlog's set_pattern demands one, at the library boundary.
-    // DAS ETIKETT BLEIBT EIN ZEIGER, und das ist kein Detail: die erste Fassung des Schnitts vom
-    // 2026-08-30 gab internal::make_file_formatter einen std::string und erzeugte damit HIER eine
-    // Umwandlung — STD_STRING_FORBIDDEN, an genau der Stelle, an der der Vorgaenger einen
-    // Stack-Puffer benutzt hatte, um sie zu vermeiden. Die Fabrik nimmt jetzt einen const char*
-    // und bildet den std::string erst an der Bibliotheksgrenze, wo spdlog::set_pattern ihn
-    // ohnehin verlangt. Was sich gegenueber dem Vorgaenger aendert, ist nur der ORT der
-    // Musterbildung, nicht ihr Typ.
+    // cfg.label is a char[] already; it is carried as a plain pointer, and the pattern is
+    // assembled by internal::make_file_formatter. The std::string appears only where spdlog's
+    // set_pattern demands one, at the library boundary.
+    // DAS ETIKETT BLEIBT EIN ZEIGER, und das ist kein Detail: ein std::string an dieser Stelle
+    // erzeugte HIER eine Umwandlung — STD_STRING_FORBIDDEN, an genau der Stelle, an der ein
+    // Stack-Puffer sie vermeiden soll. Die Fabrik nimmt einen const char* und bildet den
+    // std::string erst an der Bibliotheksgrenze, wo spdlog::set_pattern ihn ohnehin verlangt.
     const char* lbl = cfg.label[0] != '\0' ? cfg.label : "SERVER";
-    log_file_ = cfg.log_file;
 
-    // Calculate absolute log path relative to project root (not cwd).
-    g_log_path_ = resolve_log_path(log_file_);
+    // The log path is resolved relative to the project root (not cwd) and goes straight into the
+    // sink that opens it; no copy of it outlives this call.
     // NO truncate here. The rotating sink below opens with rotate_on_open, which turns the previous
     // run into <name>.1.log instead of erasing it. Emptying the file first would make that rotation
     // a no-op (it only fires on a non-empty file) and would destroy the previous run's evidence on
@@ -358,35 +282,33 @@ void LogSystem::on_start(ecs::Registry& registry) {
     // Build server sinks — per-server file, HTTP-ringbuffer, counting.
     //
     // KEIN STDOUT-SINK (Betreiber-Entscheid 2026-08-11): alle Logs leben AUSSCHLIESSLICH im
-    // Logverzeichnis, rotiert vom EINEN Datei-Sink. Der fruehere stdout_color_sink war eine nie
-    // entfernte Parallelausgabe: unter systemd bog StandardOutput=append denselben Strom in eine
-    // zweite, rotationslose Datei - der Deskriptor folgte beim spdlog-Rename dem Inode in die
-    // .1/.2/.3 und schrieb dort 83 GB Phantom (gemessen 2026-08-11, Platte 100%). Eine Konsole
-    // liest das Log als tail auf der Datei - dieselben Bytes, ein Schreibweg.
+    // Logverzeichnis, rotiert vom EINEN Datei-Sink. Eine Parallelausgabe auf stdout bog unter
+    // systemd mit StandardOutput=append denselben Strom in eine zweite, rotationslose Datei - der
+    // Deskriptor folgte beim spdlog-Rename dem Inode in die .1/.2/.3 und schrieb dort 83 GB
+    // Phantom (gemessen 2026-08-11, Platte 100%). Eine Konsole liest das Log als tail auf der
+    // Datei - dieselben Bytes, ein Schreibweg.
     // VOLLES FARB-FORMAT IN DER DATEI (Betreiber-Entscheid 2026-08-11): die Konsole IST ein
     // tail auf diese Datei, und die Farben sind Systemsprache - Level-Farbe und grauer
-    // Zeitstempel gehoeren deshalb hierher, sonst saehe das Fenster anders aus als zuvor.
-    // Die Modul-Inline-Farben (Teil von %v) standen ohnehin immer in der Datei; jetzt ist
-    // das Format durchgehend farbcodiert. Die Bytes selbst stehen seit dem 2026-08-30 an EINER
-    // Stelle: internal::make_file_formatter, dieselbe, aus der auch der Edge-Daemon seinen
+    // Zeitstempel gehoeren deshalb hierher. Die Modul-Inline-Farben (Teil von %v) stehen
+    // ohnehin in der Datei; das Format ist durchgehend farbcodiert. Die Bytes selbst stehen an
+    // EINER Stelle: internal::make_file_formatter, dieselbe, aus der auch der Edge-Daemon seinen
     // Formatierer bekommt.
-    auto server_file_sink = make_rotating_file_sink(g_log_path_);
+    auto server_file_sink = make_rotating_file_sink(resolve_log_path(cfg.log_file));
     server_file_sink->set_formatter(internal::make_file_formatter(lbl));
 
     // HTTP-endpoint ringbuffer (served by /api/logs). Separate from the
     // transient capture-ring: this one stays for the process lifetime.
     auto http_ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(cfg.ringbuffer_size);
     internal::log_resources().store_http_ring(http_ring);
-    g_ringbuffer_sink_ = http_ring;
     http_ring->set_formatter(internal::make_ring_formatter());
 
-    // Zaehl-Senke: eine Zeile, ein Hochzaehlen. OHNE Einfangen — g_log_counter_ ist ein
-    // statisches Member dieser Klasse, hat also statische Lebensdauer und ist im Lambda ohne
-    // Capture erreichbar. callback_sink_mt bringt dieselbe Sperre mit, die vorher
-    // base_sink<std::mutex> hielt; der Zaehler bleibt atomar und ueberlebt die Senke.
+    // Zaehl-Senke: eine Zeile, ein Hochzaehlen. OHNE Einfangen — der Zaehler liegt im
+    // ResourceManager, und internal::log_resources() erreicht ihn ohne Registry und ohne
+    // Capture. callback_sink_mt bringt dieselbe Sperre mit, die vorher base_sink<std::mutex>
+    // hielt; der Zaehler bleibt atomar und ueberlebt die Senke.
     auto counting_sink = std::make_shared<spdlog::sinks::callback_sink_mt>(
         [](const spdlog::details::log_msg&) {
-            g_log_counter_.fetch_add(1, std::memory_order_relaxed);
+            internal::log_resources().increment_counter();
         });
 
     // Park ALL real sinks. The logger keeps only the capture_ring during
@@ -402,17 +324,16 @@ void LogSystem::on_start(ecs::Registry& registry) {
     if (!internal::logger_slot()) {
         // Safety net for callers that never invoked install_capture_logger
         // (unit tests etc.): create a minimal logger on the real sinks.
-        ase::containers::Vector<spdlog::sink_ptr> all{server_file_sink, g_ringbuffer_sink_, counting_sink};
-        internal::logger_slot() = std::make_shared<spdlog::logger>(logger_name_, all.begin(), all.end());
+        ase::containers::Vector<spdlog::sink_ptr> all{server_file_sink, http_ring, counting_sink};
+        internal::logger_slot() = std::make_shared<spdlog::logger>("ASE", all.begin(), all.end());
     }
     // else: leave the logger alone — it currently has [capture_ring] only,
     // exactly right for the boot phase.
     internal::logger_slot()->set_level(spdlog::level::trace);
     internal::logger_slot()->flush_on(spdlog::level::trace);
     spdlog::register_logger(internal::logger_slot());
-    // Der ResourceManager haelt den Logger MIT — bis 2026-08-22 hatte er ein Logger-Fach
-    // (store_logger/get_logger) ohne jeden Schreiber, weshalb get_logger() dauerhaft nullptr
-    // lieferte. Eine Ablage ohne Schreiber meldet sich nie: kein Tor sieht sie, kein Compiler,
+    // Der ResourceManager haelt den Logger MIT. Ohne diese Ablage liefert get_logger() dauerhaft
+    // nullptr, und eine Ablage ohne Schreiber meldet sich nie: kein Tor sieht sie, kein Compiler,
     // und der erste Leser haelt das nullptr fuer "noch nicht initialisiert".
     // Die Ablage steht HIER und nicht an den Standalone-Einstiegen, weil nur fuer diesen
     // Pfad der Aufraeumweg belegt ist: on_stop setzt den Logger-Slot zurueck und ruft
@@ -437,19 +358,12 @@ void LogSystem::on_start(ecs::Registry& registry) {
     log::debug("[LogSystem] Started");
 }
 
-// AUSGEZOGEN 2026-08-22 nach src/log_query.cpp: parse_ring_line und LogSystem::recent_logs.
-//
 // Diese Datei traegt den AUFBAU des Loggings — Senken, Logger, Formatierer, Lebenszyklus. Der
-// LESEZUGRIFF auf den Ring ("welche Zeilen hat es geschrieben") ist die zweite Frage, und der
-// God-System-Deckel hat sie gemeldet: nicht als Laengenproblem, sondern als fehlende Trennung.
-//
-// Die Regel sagt dazu, was die Reihenfolge sein muss — "split FIRST, fix findings SECOND" —,
-// weil die vorgeschriebenen Reparaturen Zeilen HINZUFUEGEN und eine uebervolle Datei deshalb
-// beide Fronten gleichzeitig blockiert. Genau das ist hier passiert: die Aufloesung der
-// Zaehl-Fabrik scheiterte am Deckel, nicht an der Sache.
+// LESEZUGRIFF auf den Ring ("welche Zeilen hat es geschrieben") ist die zweite Frage und steht in
+// src/log_query.cpp (recent_logs).
 
 void LogSystem::tick(ecs::Registry& /*registry*/, float /*dt*/) {
-    // Könnte später für Batch-Logging bei Millionen Logs genutzt werden
+    // Kein Arbeitsschritt je Tick: die Senken arbeiten im Aufruf von log::*, nicht im Takt.
 }
 
 void LogSystem::on_stop(ecs::Registry& /*registry*/) {
@@ -464,37 +378,25 @@ void LogSystem::on_stop(ecs::Registry& /*registry*/) {
     if (internal::client_logger_slot()) {
         internal::client_logger_slot()->flush();
     }
-    // Drop every logger from spdlog's global registry, then release ALL static sink/logger
-    // shared_ptrs HERE (controlled downstrap), so none survive into the C++ static-destruction
-    // phase at process exit. If any lingered, its exit-time destructor would race spdlog's own
-    // static registry destructor across translation units and free the same spdlog logger/sink
-    // twice — the "double free or corruption (!prev)" abort in __run_exit_handlers (valgrind-
-    // confirmed: blocks alloc'd in LogSystem::on_start, freed twice at exit). Resetting only
-    // the server logger alone (as before) left the client logger + every sink static dangling to exit.
+    // Drop every logger from spdlog's global registry, then release ALL sink/logger shared_ptrs
+    // HERE (controlled downstrap), so none survive into the C++ static-destruction phase at
+    // process exit. If any lingered, its exit-time destructor would race spdlog's own static
+    // registry destructor across translation units and free the same spdlog logger/sink twice —
+    // the "double free or corruption (!prev)" abort in __run_exit_handlers (valgrind-confirmed:
+    // blocks alloc'd in LogSystem::on_start, freed twice at exit). Resetting only the server
+    // logger would leave the client logger and every sink to the exit phase.
     // spdlog::shutdown() is a superset of drop_all(): it also resets the periodic flusher and
     // the global thread pool, and tears down the registry singleton's internal state. drop_all()
-    // alone left spdlog-owned static state (a 45-byte logger-name block, valgrind-confirmed) to be
-    // freed in the C++ static-destruction phase at exit, racing the registry's own static dtor →
-    // the last remaining double-free. Releasing it HERE, in the controlled downstrap, removes it.
+    // alone leaves spdlog-owned static state (a 45-byte logger-name block, valgrind-confirmed) to
+    // be freed in the C++ static-destruction phase at exit, racing the registry's own static
+    // dtor. Releasing it HERE, in the controlled downstrap, removes it.
     spdlog::shutdown();
     internal::logger_slot().reset();
     internal::client_logger_slot().reset();
-    g_ringbuffer_sink_.reset();
-    // Der Manager haelt seit 2026-08-22 die uebrigen fuenf Zeiger (HTTP-Ring, Aufnahme-Ring, drei
-    // geparkte Senken). Er wird HIER geleert, aus demselben Grund wie die drei darueber: im
-    // kontrollierten Abstieg, nicht in der statischen Zerstoerung.
+    // Der Manager haelt die uebrigen Zeiger (HTTP-Ring, Aufnahme-Ring, drei geparkte Senken).
+    // Er wird HIER geleert, aus demselben Grund wie die Slots darueber: im kontrollierten
+    // Abstieg, nicht in der statischen Zerstoerung.
     internal::log_resources().clear_all();
-
-    // Release the static std::string heap buffer too. ase-log is a STATIC lib embedded in the
-    // server binary AND in every dlopen'd .module (via ase::ecs → ase::log), so g_log_path_ has
-    // one merged instance but a per-translation-unit __cxa_atexit destructor registration. At
-    // process exit those destructors all run on the SAME merged string and free its buffer more
-    // than once ("double free or corruption" in __run_exit_handlers; the 45-byte block is this
-    // path). Emptying + shrinking it HERE (once, in the controlled downstrap) leaves every
-    // exit-time destructor a no-op on an empty string. Same reasoning as the sink/logger resets
-    // above — clear the merged static while the engine still runs, never at static destruction.
-    g_log_path_.clear();
-    g_log_path_.shrink_to_fit();
 }
 
 }  // namespace ase::log

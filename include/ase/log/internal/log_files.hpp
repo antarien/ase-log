@@ -113,4 +113,43 @@ void prepare_log_sink(const std::string& path, uint64_t& out_max_bytes, uint32_t
  */
 [[nodiscard]] std::string resolve_log_path(const std::string& log_file);
 
+/**
+ * Fassungsvermoegen des Aufnahme-Rings der Startphase, in Zeilen: Vorgabe und Grenzen.
+ *
+ * Der Ring haelt alles, was zwischen dem ersten Griff in Kernel::build und dem Anhaengen der
+ * echten Senken anfaellt, und VERWIRFT die aeltesten Zeilen, wenn er voll ist. Bis 2026-10-08
+ * stand die Zahl als Uebersetzungskonstante (kCaptureRingLines = 2000) im ResourceManager: der
+ * Start des World-Tiers schreibt mehr, der Ring verdraengte die load_all()-Zeile samt den ersten
+ * Ladezeilen (D0803), und jede Korrektur der Zahl war ein Bau.
+ *
+ * DIE ZAHL IST JETZT EINE LAUFZEITEINSTELLUNG: Schluessel `boot_lines` in
+ * <Projektwurzel>/logs/quota.conf, derselben Datei wie die Rotationsquote, gelesen von
+ * capture_ring_lines() beim Einrichten des Rings. Eine Aenderung wirkt beim naechsten Start eines
+ * Prozesses, ohne Bau. Fehlt die Datei oder der Schluessel, gilt die Vorgabe.
+ */
+inline constexpr uint32_t kDefaultCaptureRingLines = 10000u;
+
+/**
+ * Untergrenze fuer boot_lines. Allein die Ladephase des World-Tiers schreibt 85 Zeilen (Lauf vom
+ * 2026-10-07 mit --log +DBG +LOAD: die load_all()-Zeile und 84 Ladezeilen); darunter faengt der
+ * Ring nicht einmal den Kernel-Start auf, und 0 haette gar nichts aufgefangen.
+ */
+inline constexpr uint32_t kMinCaptureRingLines = 1000u;
+
+/**
+ * Obergrenze fuer boot_lines. spdlog legt alle Plaetze beim Einrichten an (circular_q baut seinen
+ * Vektor mit max_items + 1 Eintraegen, spdlog/details/circular_q.h), also kostet jede Zahl ihren
+ * Speicher sofort; ein Tippfehler in quota.conf darf den Start nicht mit diesem Speicher belasten.
+ */
+inline constexpr uint32_t kMaxCaptureRingLines = 100000u;
+
+/**
+ * Fassungsvermoegen des Aufnahme-Rings aus <Projektwurzel>/logs/quota.conf (Schluessel
+ * `boot_lines`), auf [kMinCaptureRingLines, kMaxCaptureRingLines] begrenzt.
+ *
+ * Laeuft als ERSTE Zeile von Kernel::build, also bevor es einen Logger gibt. Wie bei der
+ * Rotationsquote gilt ohne Datei oder ohne Schluessel die Vorgabe kDefaultCaptureRingLines.
+ */
+[[nodiscard]] uint32_t capture_ring_lines();
+
 }  // namespace ase::log::internal

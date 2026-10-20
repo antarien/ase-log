@@ -12,19 +12,20 @@
  * @module      ase-log
  * @layer       1 (Core)
  * @category    process/computation
+ * @usecase     usecase:100361 - open the log sinks
  * @created     2026-08-31
- * @modified    2026-08-31
- * @version     1.0.0
+ * @modified    2026-10-13
+ * @version     1.1.0
  *
  * WARUM DIESER ZWECK EINE EIGENE DATEI IST — GEMESSEN, NICHT GESCHAETZT
  *
- * Diese Erklaerungen standen bis 2026-08-31 in `log.hpp`. Dort trafen sie auf einen
- * Verbraucherkreis, den sie nichts angehen: `log.hpp` wird von 2224 Uebersetzungseinheiten
- * eingebunden, die Quota-Symbole von SECHS Dateien insgesamt — vier im Modul selbst
- * (internal/log_files.hpp, src/log_files.cpp, src/log_sys.cpp und log.hpp) und ZWEI ausserhalb:
- * tools/ase-edge-daemon/src/cli_backend/backend_paths.cpp und tools/ase-cli/src/logs/logs_cmd.cpp.
+ * In `log.hpp` traefen diese Erklaerungen auf einen Verbraucherkreis, den sie nichts angehen:
+ * `log.hpp` wird von 2224 Uebersetzungseinheiten eingebunden, die Quota-Symbole von SECHS Dateien
+ * insgesamt — vier im Modul selbst (internal/log_files.hpp, src/log_files.cpp, src/log_sys.cpp
+ * und log.hpp) und ZWEI ausserhalb: tools/ase-edge-daemon/src/cli_backend/backend_paths.cpp und
+ * tools/ase-cli/src/logs/logs_cmd.cpp.
  *
- * DER PREIS WAR NICHT DIE GROESSE, SONDERN DIE KOPPLUNG: eine Aenderung an einer
+ * DER PREIS IST NICHT DIE GROESSE, SONDERN DIE KOPPLUNG: eine Aenderung an einer
  * Rotationsschranke uebersetzte 2224 Einheiten neu, obwohl sechs sie lesen. Der Schnitt folgt
  * deshalb dem EINSATZZWECK — wer eine Quota liest, bindet diese Datei ein; wer eine Zeile
  * schreibt, nicht.
@@ -73,9 +74,7 @@
 
 namespace ase::log {
 
-// ============================================================================
-// Log rotation quota — SSOT for every log-writing binary
-// ============================================================================
+// LOG ROTATION QUOTA — SSOT for every log-writing binary
 
 /**
  * Rotation quota shared by all tiers, the edge daemon and the operator CLI.
@@ -106,13 +105,11 @@ inline constexpr uint32_t kMaxLogMaxFiles = 100u;
 // Retention for the log directory, swept when a binary builds its file sink. Size rotation bounds
 // each STREAM; this bounds the NUMBER of streams, which grows by itself — one file per port a tier is
 // ever started on, one per operator console run. Two weeks is far past any process lifetime, so a
-// file a running binary still writes can never be caught by the sweep.
+// file a running binary still writes can never be caught by the sweep. The cutoff is formed in
+// plain Unix seconds with the one UTC day length of ase-utils (utils::SECONDS_PER_UTC_DAY, L0):
+// utils::clock reports int64_t seconds and DirEntry's st_mtime is the same unit, so the two meet
+// without a duration cast in between.
 inline constexpr long kLogRetentionDays = 14;
-
-// Seconds per day, so the retention cutoff can be computed in plain Unix seconds. utils::clock
-// reports int64_t seconds rather than a clock type, and the sweep compares against DirEntry's
-// st_mtime, which is the same unit — the two meet without a duration cast in between.
-inline constexpr int64_t kSecondsPerDay = 86400;
 
 // The sweep only ever deletes files ending in this suffix. Size counts the terminator, because
 // str_equal is given the bound and stops at the NUL it finds within it.

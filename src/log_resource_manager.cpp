@@ -10,9 +10,10 @@
  * @module      ase-log
  * @layer       1 (Core)
  * @category    ecs/module
+ * @usecase     usecase:100361 - open the log sinks
  * @created     2026-08-22
- * @modified    2026-08-31
- * @version     1.1.0
+ * @modified    2026-10-11
+ * @version     1.2.1
  *
  * ECS RESOURCE MANAGER IMPLEMENTATION COMPLIANCE
  *
@@ -65,6 +66,10 @@
 #include <ase/log/internal/log_resource_manager.hpp>
 
 #include <spdlog/logger.h>
+// callback_sink: die Zaehl-Senke der Startphase. Eine fertige Senke der Bibliothek mit einem
+// Rueckruf statt einer eigenen Ableitung — eine Ableitung von base_sink duerfte nur in den beiden
+// Dateien stehen, die INHERITANCE_FORBIDDEN_EXCEPT_ECS namentlich ausnimmt (siehe unten).
+#include <spdlog/sinks/callback_sink.h>
 #include <spdlog/sinks/ringbuffer_sink.h>
 #include <spdlog/sinks/sink.h>
 
@@ -142,6 +147,30 @@ void LogResourceManager::store_capture_ring(std::shared_ptr<RingSink> ring) {
 void LogResourceManager::release_capture_ring() {
     const std::lock_guard<std::mutex> guard(mutex_);
     capture_ring_.reset();
+    capture_counter_.reset();
+}
+
+void LogResourceManager::store_capture_counter(std::shared_ptr<spdlog::sinks::sink> sink) {
+    const std::lock_guard<std::mutex> guard(mutex_);
+    capture_counter_ = std::move(sink);
+    capture_lines_.store(0, std::memory_order_relaxed);
+}
+
+spdlog::sinks::sink* LogResourceManager::get_capture_counter() const {
+    const std::lock_guard<std::mutex> guard(mutex_);
+    return capture_counter_.get();
+}
+
+// Wie der Zeilenzaehler unten OHNE die Sperre: die Zaehl-Senke ruft das je Zeile der Startphase,
+// aus jedem Thread, der dann loggt. relaxed genuegt, weil der Leser in finalize_logger_after_boot
+// den Stand VOR dem Rueckspielen liest — die Ordnung zwischen Ring und Zaehlung stiftet die Sperre
+// des Rings, nicht dieser Wert (Begruendung an install_capture_counter im Header).
+void LogResourceManager::count_capture_line() {
+    capture_lines_.fetch_add(1, std::memory_order_relaxed);
+}
+
+uint64_t LogResourceManager::capture_lines() const {
+    return capture_lines_.load(std::memory_order_relaxed);
 }
 
 // Die drei Parkplaetze. Ein park_ legt ab, ein take_ nimmt heraus UND raeumt den Platz: eine
@@ -198,6 +227,7 @@ void LogResourceManager::clear_all() {
     client_logger_.reset();
     http_ring_.reset();
     capture_ring_.reset();
+    capture_counter_.reset();
     pending_file_.reset();
     pending_http_.reset();
     pending_counting_.reset();
@@ -209,22 +239,19 @@ LogResourceManager& log_resources() {
 }
 
 /**
- * @brief The one storage slot for the server logger — see the note above LogSystem in log.hpp.
+ * @brief The one storage slot for the server logger — see "WO DER LOGGER LIEGT" in log.hpp.
  *
- * GELOESCHT 2026-08-22: LogSystem::g_logger_ und LogSystem::g_client_logger_. Ein ECS-System
- * haelt keinen Zustand; solange der Logger dort lag, musste jede freie Funktion ihn ueber
- * `LogSystem::logger()` holen, und ein statischer System-Aufruf ist
- * STATIC_SYSTEM_CALLS_FORBIDDEN (WRFL_ASE_MODULE_DEPENDENCIES.md Section 3).
+ * Ein ECS-System haelt keinen Zustand: der Logger liegt in diesem Manager, und jede freie
+ * Funktion in log.hpp liest ihn ueber internal::logger_slot(), ohne einen statischen
+ * System-Aufruf (STATIC_SYSTEM_CALLS_FORBIDDEN, WRFL_ASE_MODULE_DEPENDENCIES.md Section 3).
  *
- * Die Funktion gibt den Slot des LogResourceManagers zurueck, nicht eine Kopie: die Accessoren
- * in log.hpp reichen eine Referenz durch, ueber die auch ZUGEWIESEN wird (186 Lesestellen, drei
- * Schreibstellen). Ein Rueckgabewert waere hier kein Detail, sondern ein stiller Verlust — die
- * Zuweisung liefe ins Leere.
+ * Die Funktion gibt den Slot des LogResourceManagers zurueck, nicht eine Kopie: die
+ * Inline-Logfunktionen lesen ueber diese Referenz, und die Einstiege des Moduls weisen ueber sie
+ * auch ZU. Ein Rueckgabewert waere hier kein Detail, sondern ein stiller Verlust — die Zuweisung
+ * liefe ins Leere.
  *
- * HIERHER GEWANDERT AM 2026-08-30, aus log_sys.cpp. Die beiden Funktionen tun nichts, als den
- * Slot dieses Managers durchzureichen; sie standen in der Systemdatei, weil der Zustand dort
- * einmal gelegen HAT. Nach dem Umzug in den Manager war die Weiterleitung das letzte, was von
- * jener Zeit uebrig war — und ein Durchreicher gehoert zu dem, wohin er reicht.
+ * Die beiden Funktionen tun nichts, als den Slot dieses Managers durchzureichen, und ein
+ * Durchreicher gehoert zu dem, wohin er reicht.
  */
 std::shared_ptr<spdlog::logger>& logger_slot() {
     return log_resources().logger_slot();
@@ -284,7 +311,7 @@ void install_logger(const std::string& name, const SinkSet& sinks, uint8_t level
                     uint8_t flush_level) {
     // Ohne Senke KEIN Logger. Ein Logger mit leerer Senkenliste besteht jeden Null-Test und
     // schreibt trotzdem nie eine Zeile — der Aufrufer haelt sich fuer eingerichtet und ist blind.
-    // Bleibt der Slot leer, faellt es am naechsten `if (LogSystem::logger())` sofort auf.
+    // Bleibt der Slot leer, faellt es am naechsten `if (internal::logger_slot())` sofort auf.
     if (sinks.empty()) return;
 
     auto logger = std::make_shared<spdlog::logger>(name, sinks.sinks_.begin(), sinks.sinks_.end());
@@ -304,6 +331,15 @@ std::shared_ptr<spdlog::sinks::sink> install_capture_ring(uint32_t lines) {
     auto ring = std::make_shared<LogResourceManager::RingSink>(static_cast<std::size_t>(lines));
     log_resources().store_capture_ring(ring);
     return ring;
+}
+
+std::shared_ptr<spdlog::sinks::sink> install_capture_counter() {
+    // Der Rueckruf greift ueber die Fassade auf den Manager zu, nicht ueber einen gefangenen
+    // Zeiger: der Manager ist ein funktionslokaler static und lebt laenger als jede Senke.
+    auto counter = std::make_shared<spdlog::sinks::callback_sink_mt>(
+        [](const spdlog::details::log_msg&) { log_resources().count_capture_line(); });
+    log_resources().store_capture_counter(counter);
+    return counter;
 }
 
 uint32_t attach_sinks(const SinkSet& sinks) {
@@ -334,6 +370,9 @@ bool detach_capture_ring() {
     auto& res = log_resources();
     auto* ring = res.get_capture_ring();
     if (ring == nullptr) return false;
+    // Die Zaehl-Senke geht mit dem Ring: haengen bliebe sie, zaehlte sie jede Zeile des Prozesses
+    // fuer niemanden. Ein Nullzeiger (kein Zaehler eingerichtet) trifft in der Liste nichts.
+    auto* counter = res.get_capture_counter();
 
     auto& slot = logger_slot();
     if (slot) {
@@ -342,10 +381,10 @@ bool detach_capture_ring() {
         // waere hier nicht falsch, aber er verlangte den Besitzzeiger — und den gibt der Manager
         // absichtlich nicht heraus.
         auto& sinks_vec = slot->sinks();
-        sinks_vec.erase(std::remove_if(sinks_vec.begin(), sinks_vec.end(),
-                                       [ring](const std::shared_ptr<spdlog::sinks::sink>& s) {
-                                           return s.get() == ring;
-                                       }),
+        const auto is_capture = [ring, counter](const std::shared_ptr<spdlog::sinks::sink>& s) {
+            return s.get() == ring || s.get() == counter;
+        };
+        sinks_vec.erase(std::remove_if(sinks_vec.begin(), sinks_vec.end(), is_capture),
                         sinks_vec.end());
     }
     res.release_capture_ring();

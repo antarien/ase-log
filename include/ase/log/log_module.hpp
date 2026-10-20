@@ -16,9 +16,10 @@
  *
  * @module      ase-log
  * @layer       1 (Core)
+ * @usecase     usecase:100361 - open the log sinks
  * @created     2026-01-09
- * @modified    2026-08-20
- * @version     1.1.0
+ * @modified    2026-10-11
+ * @version     1.2.0
  *
  * ECS MODULE/PLUGIN DEFINITION COMPLIANCE
  *
@@ -36,7 +37,8 @@
 
 #include <ase/ecs/app.hpp>
 #include <ase/log/version.hpp>
-#include <ase/log/log.hpp>
+#include <ase/log/systems/log_sys.hpp>
+#include <cstdint>
 #include <cstring>
 
 namespace ase::log {

@@ -19,9 +19,9 @@
  *
  *   Das Template setzt eine Registry voraus. ase-log hat keine, und zwar aus drei gemessenen
  *   Gruenden: `log::init` laeuft VOR Kernel::build, der Logger wird statisch herausgegeben
- *   (`LogSystem::logger()` gibt `internal::logger_slot()` zurueck, beides in log.hpp), und
- *   core/ase-convert loggt ohne jede Registry — seine erste `log::error`-Zeile steht dort
- *   sogar VOR dem eigenen `log::init`.
+ *   (die Inline-Logfunktionen in log.hpp lesen `internal::logger_slot()`), und core/ase-convert
+ *   loggt ohne jede Registry — seine erste `log::error`-Zeile steht dort sogar VOR dem eigenen
+ *   `log::init`.
  *   Ein ctx()-Zugriff waere in allen drei Faellen ein Griff ins Leere.
  *
  *   Die Bauform bleibt deshalb dieselbe — Besitz ausserhalb des Systems, Zugriff ueber eine
@@ -29,36 +29,31 @@
  *   ist derselbe Mechanismus, mit dem der C++-Standard die Lebensdauer garantiert, bevor main()
  *   laeuft, und er traegt genau die drei Faelle oben.
  *
- * WARUM DIE FABRIKEN HIER STEHEN UND NICHT IN EIGENEN DATEIEN (2026-08-31)
+ * WARUM DIE FABRIKEN HIER STEHEN UND NICHT IN EIGENEN DATEIEN
  *
- *   Sie standen einen Tag lang in internal/log_sinks.hpp mit ihrer .cpp und in
- *   internal/log_format.hpp mit ihrer .cpp, und diese Dateien trugen ihre eigene Begruendung
- *   dafuer: "ein eigener interner Header, der den fremden Typ nennen DARF, weil er nichts
- *   anderes tut. Er ist `internal/` und damit kein oeffentlicher Vertrag."
+ *   Die Ausnahme von SPDLOG_DIRECT_FORBIDDEN ist NAMENTLICH, nicht nach Verzeichnis. Sie nennt
+ *   fuenf Dateien — log.hpp, log_sys.cpp, diesen Header, die zugehoerige .cpp und
+ *   log_capture.cpp. Ein Header steht dort nicht, nur weil er unter `internal/` liegt. Der
+ *   Meldetext der Regel sagt es woertlich: "the wrapper is complete, a new file reaching for
+ *   spdlog is not building it."
  *
- *   DIESE BEGRUENDUNG WAR FALSCH, und zwar nachweisbar: die Ausnahme von SPDLOG_DIRECT_FORBIDDEN
- *   ist NAMENTLICH, nicht nach Verzeichnis. Sie nennt fuenf Dateien — log.hpp, log_sys.cpp,
- *   diesen Header, die zugehoerige .cpp und log_capture.cpp. Ein Header steht dort nicht, nur
- *   weil er unter `internal/` liegt. Der Meldetext der Regel sagt es woertlich: "the wrapper is
- *   complete, a new file reaching for spdlog is not building it."
- *
- *   UND DER FEHLER WAR NICHT DER SCHNITT, SONDERN SEINE RICHTUNG. Die Fabriken gaben
- *   `std::shared_ptr` auf eine Senke und `std::unique_ptr` auf einen Formatierer in der
- *   OEFFENTLICHEN Signatur zurueck — sie EXPORTIERTEN die Bibliothek, statt sie zu kapseln. Ein
- *   Wrapper, dessen Header den gewrappten Typ herausreicht, ist an dieser Stelle keiner mehr.
- *   Hier ist derselbe Rueckgabetyp richtig: dieser Header IST die Innenseite.
+ *   UND ES GEHT UM DIE RICHTUNG: eine Fabrik, die `std::shared_ptr` auf eine Senke und
+ *   `std::unique_ptr` auf einen Formatierer in einer OEFFENTLICHEN Signatur zurueckgibt,
+ *   EXPORTIERT die Bibliothek, statt sie zu kapseln. Ein Wrapper, dessen Header den gewrappten Typ
+ *   herausreicht, ist an dieser Stelle keiner mehr. Hier ist derselbe Rueckgabetyp richtig: dieser
+ *   Header IST die Innenseite.
  *
  *   Die Widmung stimmt ebenfalls, und sie ist der eigentliche Grund: der Manager HAELT die
- *   Senken (park_ und take_), er HAENGT sie ein (install_logger, attach_sinks) — dass er sie
- *   nicht auch BAUT, war die Luecke, nicht die Ordnung. Bauen, Halten und Einhaengen derselben
- *   Sache gehoeren an eine Stelle.
+ *   Senken (park_ und take_), er HAENGT sie ein (install_logger, attach_sinks), und er BAUT sie.
+ *   Bauen, Halten und Einhaengen derselben Sache gehoeren an eine Stelle.
  *
  * @module      ase-log
  * @layer       1 (Core)
  * @category    ecs/module
+ * @usecase     usecase:100361 - open the log sinks
  * @created     2026-08-22
- * @modified    2026-08-31
- * @version     1.1.0
+ * @modified    2026-10-11
+ * @version     1.2.1
  *
  * ECS RESOURCE MANAGER HEADER COMPLIANCE
  *
@@ -110,17 +105,16 @@ public:
     void store_client_logger(std::shared_ptr<spdlog::logger> logger);
 
     /**
-     * Der Speicherplatz selbst, als Referenz — der einzige Halter des Loggers seit 2026-08-22.
+     * Der Speicherplatz selbst, als Referenz — der einzige Halter des Loggers.
      *
-     * WARUM ES DIE BEIDEN NEBEN get_logger()/store_logger() GIBT: die Accessoren
-     * LogSystem::logger()/client_logger() geben eine Referenz zurueck, ueber die im Baum auch
-     * ZUGEWIESEN wird (`LogSystem::logger() = boot;`). Ein Zeiger oder eine Kopie kann das nicht
-     * abbilden — die Zuweisung liefe ins Leere, und zwar lautlos.
+     * WARUM ES DIE BEIDEN NEBEN get_logger()/store_logger() GIBT: internal::logger_slot() und
+     * internal::client_logger_slot() in log.hpp geben diese Referenz heraus, und ueber sie wird
+     * im Baum auch ZUGEWIESEN. Ein Zeiger oder eine Kopie kann das nicht abbilden — die Zuweisung
+     * liefe ins Leere, und zwar lautlos.
      *
      * SIE SPERREN NICHT, UND DAS IST KEINE NACHLAESSIGKEIT: eine herausgereichte Referenz kann
-     * nicht geschuetzt werden, egal was die Methode tut. Der Vorgaengerzustand war ein blanker
-     * statischer Member ohne jeden Schutz (LogSystem::g_logger_) — hier wird also nichts
-     * schwaecher. Wer den Logger nur LIEST, nimmt get_logger(): der sperrt.
+     * nicht geschuetzt werden, egal was die Methode tut. Wer den Logger nur LIEST, nimmt
+     * get_logger(): der sperrt.
      */
     [[nodiscard]] std::shared_ptr<spdlog::logger>& logger_slot();
     [[nodiscard]] std::shared_ptr<spdlog::logger>& client_logger_slot();
@@ -141,11 +135,34 @@ public:
      *
      * Haelt jede Zeile zwischen install_capture_logger (erste Zeile von Kernel::build) und
      * finalize_logger_after_boot. Danach wird er zurueckgespielt und freigegeben — er ist der
-     * einzige Grund, warum keine Startmeldung verlorengeht, waehrend noch keine Senke lebt.
+     * einzige Grund, warum keine Startmeldung verlorengeht, waehrend noch keine Senke lebt,
+     * solange er nicht ueberlaeuft (siehe die Zaehl-Senke darunter).
+     *
+     * release_capture_ring gibt den Ring UND die Zaehl-Senke frei: beide gehoeren zur Startphase
+     * und enden mit ihr.
      */
     [[nodiscard]] RingSink* get_capture_ring() const;
     void store_capture_ring(std::shared_ptr<RingSink> ring);
     void release_capture_ring();
+
+    /**
+     * Die Zaehl-Senke der Startphase und ihr Stand.
+     *
+     * DER RING VERWIRFT SEINE AELTESTEN ZEILEN, WENN ER VOLL IST, und sagt es niemandem: spdlog
+     * fuehrt einen Ueberlaufzaehler in der Queue des Rings, aber ringbuffer_sink ist final und seine
+     * Queue privat. Deshalb haengt neben dem Ring eine zweite Senke am Start-Logger, die jede
+     * angenommene Zeile zaehlt. Angenommen minus zurueckgespielt ist die Zahl der verdraengten
+     * Zeilen, und finalize_logger_after_boot meldet sie als Warnung — ein stiller Ueberlauf sah im
+     * Log aus wie ein Start, der spaeter begonnen hat.
+     *
+     * store_capture_counter setzt den Stand auf null: ein neuer Zaehler beginnt eine neue
+     * Startphase. Gezaehlt wird OHNE die Sperre, aus demselben Grund wie beim Zeilenzaehler
+     * darunter — die Senke ruft count_capture_line je Zeile aus einem beliebigen Thread.
+     */
+    void store_capture_counter(std::shared_ptr<spdlog::sinks::sink> sink);
+    [[nodiscard]] spdlog::sinks::sink* get_capture_counter() const;
+    void count_capture_line();
+    [[nodiscard]] uint64_t capture_lines() const;
 
     /**
      * Die drei geparkten Senken.
@@ -170,7 +187,8 @@ public:
      * Die Zaehlung passiert IM Manager, nicht ueber einen herausgegebenen Zeiger: ase-log ist
      * der einzige Weg, aus einem fremden Thread zu loggen, also faellt das Hochzaehlen aus
      * beliebigen Threads an. Ein roher Zeiger auf den Zaehler wuerde genau die Atomaritaet
-     * verlieren, die ihn richtig macht — deshalb zwei Methoden statt eines Slots.
+     * verlieren, die ihn richtig macht — deshalb zwei Methoden statt eines Slots. Hochgezaehlt
+     * wird von der Zaehl-Senke, die LogSystem::on_start baut; gelesen von recent_logs.
      */
     void increment_counter();
     [[nodiscard]] uint32_t log_counter() const;
@@ -186,10 +204,12 @@ private:
     std::shared_ptr<spdlog::logger> client_logger_;
     std::shared_ptr<RingSink> http_ring_;
     std::shared_ptr<RingSink> capture_ring_;
+    std::shared_ptr<spdlog::sinks::sink> capture_counter_;
     std::shared_ptr<spdlog::sinks::sink> pending_file_;
     std::shared_ptr<spdlog::sinks::sink> pending_http_;
     std::shared_ptr<spdlog::sinks::sink> pending_counting_;
     std::atomic<uint32_t> counter_{0};
+    std::atomic<uint64_t> capture_lines_{0};
 };
 
 /**
@@ -210,17 +230,11 @@ private:
  * zerstoeren — der wird name.1.log. Es feuert nur bei nicht-leerer Datei.
  *
  * DIE POLITIK DAHINTER (welche Datei, wie gross, wie viele Generationen) steht in
- * internal::prepare_log_sink und wird hier nur gerufen. Die Bauform stand bis 2026-08-30 im
- * ANONYMEN Namensraum von log_sys.cpp und hatte dort drei Aufrufer: LogSystem::on_start,
- * init_server_standalone und init_tui_standalone. Eine Funktion im anonymen Namensraum kann
- * keine Dateigrenze ueberschreiten, und sie zu KOPIEREN waere die zweite Wahrheit ueber denselben
- * Schritt gewesen: zwei Stellen, an denen steht, wann eine Logdatei rotiert, und die driften.
- *
- * EIN TOTER VERWEIS, DER DABEI AUFFIEL UND HIER SEINEN GRABSTEIN BEHAELT: log_sys.cpp trug bis
- * 2026-08-30 die Zeile "internal::make_rotating_file_sink und internal::resolve_log_path stehen
- * in <ase/log/internal/log_files.hpp>". Gemessen: nur der zweite Name steht dort. Der erste wurde
- * am 2026-08-22 in `prepare_log_sink` aufgeloest, das ausschliesslich die Politik traegt —
- * log_files.hpp:83 sagt es selbst, in der Vergangenheit ("hier stand `make_rotating_file_sink`").
+ * internal::prepare_log_sink und wird hier nur gerufen. Die Bauform hat drei Aufrufer:
+ * LogSystem::on_start, init_server_standalone und init_tui_standalone. Eine Funktion im
+ * ANONYMEN Namensraum kann keine Dateigrenze ueberschreiten, und sie zu KOPIEREN waere die zweite
+ * Wahrheit ueber denselben Schritt: zwei Stellen, an denen steht, wann eine Logdatei rotiert, und
+ * die driften.
  */
 [[nodiscard]] std::shared_ptr<spdlog::sinks::sink> make_rotating_file_sink(const std::string& path);
 
@@ -232,7 +246,7 @@ private:
  * Zweiter Einstieg derselben Widmung wie make_rotating_file_sink darueber: WER EINE SENKE
  * BRAUCHT, RUFT HIER, statt sie selbst zu konstruieren. Das ist keine Bequemlichkeit, sondern
  * die Trennung, fuer die es diese Fabriken gibt — die Bauform einer Senke steht an EINER Stelle,
- * und die Aufrufer nennen keinen Typ der Bibliothek mehr.
+ * und die Aufrufer nennen keinen Typ der Bibliothek.
  *
  * Sie schreibt auf stdout und faerbt nach Stufe. Fuer eine TUI ist sie deshalb FALSCH: rohe
  * ANSI-Sequenzen zerlegen einen Alternativschirm. Dieser Fall hat seine eigene Senke im
@@ -247,10 +261,9 @@ private:
  * @param fmt      Der Formatierer, mit dem die Zeile erzeugt wird (make_tui_callback_formatter)
  * @return Die fertige Senke
  *
- * Dritter Einstieg derselben Widmung: WER EINE SENKE BRAUCHT, RUFT HIER. Sie stand bis
- * 2026-08-31 im anonymen Namensraum von log_standalone.cpp und zwang jene Datei, fuenf Typen der
- * Bibliothek zu nennen — obwohl ihre Widmung eine andere ist: sie sagt, WELCHE Senken ein
- * Programm ohne ECS-Welt bekommt, nicht wie eine Senke gebaut wird.
+ * Dritter Einstieg derselben Widmung: WER EINE SENKE BRAUCHT, RUFT HIER. Sie gehoert hierher und
+ * nicht in log_standalone.cpp: jene Datei sagt, WELCHE Senken ein Programm ohne ECS-Welt bekommt,
+ * nicht wie eine Senke gebaut wird — und muesste dafuer fuenf Typen der Bibliothek nennen.
  *
  * WARUM SIE DEN FORMATIERER SELBST HAELT und nicht die Basisklasse ihn setzen laesst: die
  * Rueckruf-Senke der Bibliothek uebergibt nur den ROHDATENSATZ. Damit der Bereich in tools/ase-cli
@@ -273,18 +286,17 @@ private:
  * und semantisch gefaerbt in JEDEN Kanal.
  *
  * DAS TIER-DATEIMUSTER UND DAS STANDALONE-DATEIMUSTER SIND BYTEWEISE DASSELBE, und das ist keine
- * Beobachtung, sondern eine ZUSAGE — der Kopf von init_server_standalone sagt seit jeher "Mirrors
- * the LogSystem::on_start file formatter byte-for-byte so customer-side tools log identically to
+ * Beobachtung, sondern eine ZUSAGE — der Kopf von init_server_standalone sagt "Mirrors the
+ * LogSystem::on_start file formatter byte-for-byte so customer-side tools log identically to
  * engine/replica/world". Eine Zusage, die an zwei Stellen unabhaengig nachgebaut wird, ist eine
- * Zusage ohne Halt: nichts haette gemeldet, wenn eine der beiden Stellen ein Zeichen anders
- * gesetzt haette, und beide Ausgaben saehen fuer sich plausibel aus. Seit es EINE Fabrik gibt,
- * ist die Zusage eingeloest, statt beschrieben.
+ * Zusage ohne Halt: nichts meldete, wenn eine der beiden Stellen ein Zeichen anders setzte, und
+ * beide Ausgaben saehen fuer sich plausibel aus. Mit EINER Fabrik ist die Zusage eingeloest,
+ * statt beschrieben.
  *
  * WARUM DAS ETIKETT EIN `const char*` IST UND KEIN `std::string`: weil der Aufrufer eines hat.
- * LogConfig::label ist ein char[], und die erste Fassung dieser Schnittstelle nahm einen
- * std::string — das erzeugte im System eine Umwandlung und mit ihr einen
- * STD_STRING_FORBIDDEN-Befund an genau der Stelle, an der der Vorgaenger einen Stack-Puffer
- * benutzt hatte, um sie zu vermeiden. Die Umwandlung gehoert an die BIBLIOTHEKSGRENZE, wo
+ * LogConfig::label ist ein char[], und ein std::string an dieser Schnittstelle erzeugte im System
+ * eine Umwandlung und mit ihr einen STD_STRING_FORBIDDEN-Befund an genau der Stelle, an der ein
+ * Stack-Puffer sie vermeiden soll. Die Umwandlung gehoert an die BIBLIOTHEKSGRENZE, wo
  * set_pattern ohnehin einen std::string verlangt, und die liegt in der zugehoerigen .cpp. Ein
  * Standalone-Aufrufer, der einen std::string haelt, reicht `.c_str()`.
  */
@@ -342,10 +354,8 @@ private:
  * Durchreicher gehoert zu dem, wohin er reicht.
  *
  * WAS ES DEN AUFRUFERN ERSPART, und das ist der Zweck, nicht ein Nebeneffekt: init() in
- * log_standalone.cpp musste bis 2026-08-31 den Logger-Typ und die Stufenkonstante der
- * Bibliothek SELBST nennen, um ihn zu bauen. Es beschreibt jetzt nur noch, WELCHEN Logger sein
- * Programm braucht, und nennt keinen Fremdtyp mehr. Die Bibliothek bleibt, wo sie hingehoert:
- * bei dem, der ihre Werte haelt.
+ * log_standalone.cpp beschreibt nur, WELCHEN Logger sein Programm braucht, und nennt keinen
+ * Fremdtyp. Die Bibliothek bleibt, wo sie hingehoert: bei dem, der ihre Werte haelt.
  *
  * Idempotenz ist NICHT Sache dieser Funktion: sie ueberschreibt den Slot. Der Aufrufer
  * entscheidet, ob er einen bestehenden Logger stehenlaesst — alle drei Einstiege in
@@ -359,8 +369,8 @@ void install_logger(const std::string& name, std::shared_ptr<spdlog::sinks::sink
  * @brief Sammelbehaelter fuer die Senken EINES Loggers
  *
  * Ein Logger mit mehreren Senken braucht eine Liste, und eine Liste braucht einen Elementtyp.
- * Genau daran nannten die Standalone-Einstiege den Bibliothekstyp — nicht weil sie mit ihm
- * rechneten, sondern weil sie einen Behaelter deklarieren mussten. Dieser Behaelter nimmt ihnen
+ * Genau daran naennten die Standalone-Einstiege den Bibliothekstyp — nicht weil sie mit ihm
+ * rechnen, sondern weil sie einen Behaelter deklarieren muessten. Dieser Behaelter nimmt ihnen
  * das ab: `add` schluckt, was die Fabriken liefern, und der Aufrufer haelt sein Ergebnis in
  * `auto`.
  *
@@ -414,18 +424,9 @@ void install_logger(const std::string& name, const SinkSet& sinks, uint8_t level
                     uint8_t flush_level);
 
 /**
- * Fassungsvermoegen des Aufnahme-Rings der Startphase, in Zeilen.
- *
- * Er haelt alles, was zwischen dem ersten Griff in Kernel::build und dem Anhaengen der echten
- * Senken anfaellt: Kernel-Init, Umgebungslader, Kommandozeile, dlopen-Suche und jedes on_start
- * vor LogSystem. Der Ring VERWIRFT die aeltesten Zeilen, wenn er voll ist — eine zu kleine Zahl
- * frisst also stillschweigend genau den Anfang, den man beim Nachsehen sucht.
- */
-inline constexpr uint32_t kCaptureRingLines = 2000u;
-
-/**
  * @brief Richtet den Aufnahme-Ring der Startphase ein und gibt ihn als Senke zurueck
- * @param lines Fassungsvermoegen in Zeilen (siehe kCaptureRingLines)
+ * @param lines Fassungsvermoegen in Zeilen, zur Laufzeit gelesen aus logs/quota.conf
+ *              (Schluessel boot_lines, capture_ring_lines() in internal/log_files.hpp)
  * @return Der Ring als Senke, fertig zum Anhaengen an einen Logger
  *
  * EIN Vorgang, nicht zwei: der Ring wird gebaut UND im Manager abgelegt, denn er hat zwei
@@ -435,6 +436,22 @@ inline constexpr uint32_t kCaptureRingLines = 2000u;
  * nie etwas hineinlaeuft. Beides sieht beim Start aus wie ein normaler Lauf.
  */
 [[nodiscard]] std::shared_ptr<spdlog::sinks::sink> install_capture_ring(uint32_t lines);
+
+/**
+ * @brief Richtet die Zaehl-Senke der Startphase ein und gibt sie als Senke zurueck
+ * @return Die Senke, fertig zum Anhaengen HINTER dem Aufnahme-Ring
+ *
+ * Sie zaehlt jede Zeile, die der Start-Logger annimmt, in LogResourceManager::capture_lines().
+ * Wie beim Ring EIN Vorgang: gebaut UND im Manager abgelegt, damit detach_capture_ring sie
+ * zusammen mit dem Ring abhaengt — eine Zaehl-Senke, die nach dem Start haengen bliebe, zaehlte
+ * jede Zeile des Prozesses fuer niemanden.
+ *
+ * DIE REIHENFOLGE IM SENKENSATZ TRAEGT DIE ZUSAGE: der Logger bedient seine Senken in der
+ * Reihenfolge des Satzes, also liegt jede gezaehlte Zeile schon im Ring, wenn sie gezaehlt wird.
+ * Wer den Stand VOR dem Rueckspielen liest, kann einen Verlust deshalb nie zu gross angeben —
+ * schlimmstenfalls fehlen ihm Zeilen, die ein anderer Thread genau in diesem Augenblick schreibt.
+ */
+[[nodiscard]] std::shared_ptr<spdlog::sinks::sink> install_capture_counter();
 
 /**
  * @brief Haengt weitere Senken an den BESTEHENDEN Logger an
@@ -464,13 +481,14 @@ uint32_t attach_sinks(const SinkSet& sinks);
 uint32_t replay_capture_ring(const SinkSet& targets);
 
 /**
- * @brief Nimmt den Aufnahme-Ring aus der Senkenliste des Loggers und gibt ihn frei
+ * @brief Nimmt Aufnahme-Ring und Zaehl-Senke aus der Senkenliste des Loggers und gibt beide frei
  * @return true, wenn ein Ring haengte und entfernt wurde
  *
  * Der Vergleich laeuft ueber die ROHE Adresse, weil der Manager den Besitz haelt und an der
  * Senkenliste nur ein Zeiger auf dieselbe Senke steht. Nach diesem Griff traegt der Logger
  * ausschliesslich die echten Senken, und der Ring ist Geschichte — beides gehoert zusammen,
- * deshalb ist es EIN Aufruf und nicht zwei.
+ * deshalb ist es EIN Aufruf und nicht zwei. Die Zaehl-Senke geht mit ihm: ihr Stand bleibt im
+ * Manager lesbar (LogResourceManager::capture_lines), sie selbst zaehlt danach nichts mehr.
  */
 bool detach_capture_ring();
 

@@ -10,8 +10,9 @@ ASE CORE BUILD CONFIGURATION
 
 @module      ase-log
 @layer       1 (Core)
+@usecase     usecase:100051 - bind a build edge
 @created     2025-12-15
-@modified    2026-09-08
+@modified    2026-10-19
 @version     00.01.33.00083 [feat]
 
 CMAKE MODULE COMPLIANCE
@@ -58,6 +59,13 @@ configure_file(
 # ==============================================================================
 # Regenerates log_cat_gen.hpp/.cpp only when taxonomy JSON files change.
 # Uses a stamp file so Ninja can track the output and skip when up-to-date.
+#
+# DIE FUENF ERZEUGNISSE STEHEN ALS BYPRODUCTS, nicht nur der Stempel (Register D0769). Ohne
+# sie kennt Ninja keine Kante vom Generator zu den Dateien: es misst ihre Zeitstempel vor dem
+# Lauf, der Generator schreibt sie danach neu, und die Objekte bleiben im selben Bau alt. Als
+# BYPRODUCTS gelten sie fuer diesen Lauf als moeglicherweise neu, und restat nimmt jeden
+# Verbraucher wieder heraus, dessen Datei write_if_changed nicht angefasst hat — neu
+# uebersetzt wird genau das, was sich geaendert hat.
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -105,6 +113,11 @@ endif()
 if(_ASE_LOG_CODEGEN_POSSIBLE)
 add_custom_command(
     OUTPUT ${_STAMP_FILE}
+    BYPRODUCTS "${CMAKE_CURRENT_SOURCE_DIR}/include/ase/log/log_cat_gen.hpp"
+               "${CMAKE_CURRENT_SOURCE_DIR}/include/ase/log/log_err_cat_gen.hpp"
+               "${CMAKE_CURRENT_SOURCE_DIR}/src/log_cat_gen.cpp"
+               "${CMAKE_CURRENT_SOURCE_DIR}/src/log_err_cat_gen.cpp"
+               "${CMAKE_CURRENT_SOURCE_DIR}/src/log_display_gen.cpp"
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_log_cat.py"
     COMMAND ${CMAKE_COMMAND} -E touch ${_STAMP_FILE}
     WORKING_DIRECTORY ${_ASE_BASE}
@@ -256,12 +269,34 @@ add_library(${PROJECT_NAME} STATIC
     ]]
     include/ase/log/log_client.hpp
 
+    #[[
+    THE READ SIDE OF THE RING (usecase:100363 - read recent log lines): recent_logs, LogEntry and
+    their paging constants. Its own header, not part of log.hpp: the query is the only part of the
+    log that needs a container, and every unit that writes a line includes log.hpp.
+    ]]
+    include/ase/log/log_query.hpp
+
     include/ase/log/log_cat_gen.hpp
     include/ase/log/log_err_cat_gen.hpp
     include/ase/log/log_display.hpp
+
+    #[[
+    WHERE AN ESCAPE SEQUENCE ENDS (usecase:100362 - write a log line). Its own header, header-only:
+    log_display.cpp and the tier console (ase-console, console_wrap.cpp) step over the colour
+    sequences of a record with this one walk, and the console takes it over ase::log::headers
+    without an archive of the logger.
+    ]]
+    include/ase/log/log_ansi.hpp
     include/ase/log/log_filter.hpp
     include/ase/log/internal/log_files.hpp
     include/ase/log/log_module.hpp
+
+    #[[
+    THE SYSTEM THAT OPENS THE SINKS (usecase:100361 - open the log sinks). Its own header, not part
+    of log.hpp: every unit that writes a line includes log.hpp, and LogSystem is named only by
+    LogModule and src/log_sys.cpp.
+    ]]
+    include/ase/log/systems/log_sys.hpp
 )
 add_library(ase::log ALIAS ${PROJECT_NAME})
 
@@ -271,7 +306,7 @@ add_library(ase::log ALIAS ${PROJECT_NAME})
 # L0/L1 ase-log stays STATIC (kernel dlopen migration: L1 compile-time).
 # Main server binary links ase-log STATIC and exports its symbols via
 # ENABLE_EXPORTS. dlopen'd .module / .plugin files must NOT embed their
-# own copy of ase-log — otherwise each module gets its own g_logger_,
+# own copy of ase-log — otherwise each module gets its own logger slot,
 # g_level_mask, CategoryMask etc. Log calls from module code would hit
 # a null logger copy and be silently dropped; CLI filter state would
 # diverge per module; entt type ids would mismatch across boundaries.

@@ -21,7 +21,7 @@
  * @layer       1 (Core)
  * @category    ecs/module
  * @created     2026-08-24
- * @modified    2026-08-23
+ * @modified    2026-10-18
  * @version     1.0.0
  *
  * CORE INFRASTRUCTURE IMPLEMENTATION COMPLIANCE
@@ -613,7 +613,7 @@ const char* display_level_sgr(uint32_t level) {
 
 // Die semantischen Rollenfarben der Konsolen-Textfaerbung, je Rolle ein Getter -
 // die Politik nennt je Rolle einen SHA-Palettennamen (text_colors), der Wert
-// kommt aus colors.ts ueber die lokale Down-Top-Kopie.
+// kommt aus colors.ts ueber deren erzeugte python-Form in data/generated/.
 const char* display_sgr_string() {
     return "38;2;206;145;120";
 }
