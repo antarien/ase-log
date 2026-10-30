@@ -10,7 +10,7 @@ ASE CORE BUILD CONFIGURATION
 
 @module      ase-log
 @layer       1 (Core)
-@usecase     usecase:100051 - bind a build edge
+@usecase     usecase:100051 - resolve module dependencies
 @created     2025-12-15
 @modified    2026-10-19
 @version     00.01.33.00083 [feat]
