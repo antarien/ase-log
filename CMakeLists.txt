@@ -220,6 +220,7 @@ add_library(${PROJECT_NAME} STATIC
     ]]
     include/ase/log/colors.hpp
     include/ase/log/log.hpp
+    include/ase/log/log_config.hpp
 
     #[[
     DIE ROTATIONS-SSOT, seit 2026-08-31 aus log.hpp herausgeschnitten.

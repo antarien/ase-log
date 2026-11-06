@@ -4,45 +4,46 @@
  * ASE CORE INFRASTRUCTURE HEADER
  *
  * @file        log_lifecycle.hpp
- * @brief       Aufsetzen, Umlenken und Beenden des Loggers — fuer Binaries ohne ECS-Welt
- * @description Die vier Einstiege, mit denen ein Programm ohne Registry einen Logger bekommt
- *              (Konsole, Server-Format, TUI-Rueckruf), die Capture-Klammer, mit der ein Aufrufer
- *              den Zeilenstrom voruebergehend in einen Puffer umlenkt, der Filter-Einstieg aus
- *              argv und das Beenden.
+ * @brief       Setting up, diverting and ending the logger - for binaries without an ECS world
+ * @description The four entry points by which a program without a registry gets a logger
+ *              (console, server format, TUI callback), the capture bracket with which a caller
+ *              diverts the line stream into a buffer for a while, the filter entry from argv
+ *              and the shutdown.
  *
  * @module      ase-log
  * @layer       1 (Core)
  * @category    process/computation
  * @usecase     usecase:100361 - open the log sinks
+ * @actor       Entity Registry Steward (ENTIREGSTE)
  * @created     2026-08-31
- * @modified    2026-10-11
- * @version     1.0.1
+ * @modified    2026-10-30
+ * @version     1.0.2
  *
- * WARUM DIESER ZWECK EINE EIGENE DATEI IST — GEMESSEN, NICHT GESCHAETZT
+ * WHY THIS PURPOSE IS A FILE OF ITS OWN - MEASURED, NOT ESTIMATED
  *
- * `log.hpp` binden fast alle Uebersetzungseinheiten jedes Tiers ein. Den Lebenszyklus dagegen
- * ruft, wer ein Programm STARTET oder BEENDET — `log::init` aus 14 Dateien, `log::shutdown` aus
- * 10, die Capture-Klammer aus 3.
+ * `log.hpp` is included by nearly every translation unit of every tier. The lifecycle, in
+ * contrast, is called by whoever STARTS or ENDS a program - `log::init` from 14 files,
+ * `log::shutdown` from 10, the capture bracket from 3.
  *
- * DER PREIS IST DIE KOPPLUNG, NICHT DIE GROESSE: stuenden diese Deklarationen in log.hpp,
- * uebersetzte eine Aenderung an der Capture-Klammer jede dieser Einheiten neu, obwohl drei sie
- * rufen. Der Schnitt folgt dem EINSATZZWECK — wer eine Zeile SCHREIBT, bindet log.hpp ein; wer
- * einen Logger AUFSETZT, diese Datei.
+ * THE PRICE IS THE COUPLING, NOT THE SIZE: if these declarations stood in log.hpp, a change to
+ * the capture bracket would recompile every one of those units although three call it. The cut
+ * follows the PURPOSE - whoever WRITES a line includes log.hpp; whoever SETS UP a logger, this
+ * file.
  *
- * KEINE INLINE-DEFINITION, UND DAS IST DER GRUND, WARUM DIESE DATEI DIE BIBLIOTHEK NICHT NENNT.
- * Ein inline `init` muesste die farbige Konsolensenke, den Logger-Typ und die Stufenkonstante der
- * Bibliothek DIREKT nennen, in einem Header, den der ganze Baum sieht. Beide sind Deklarationen;
- * ihre Rumpfe stehen bei ihren Geschwistern in log_standalone.cpp. Damit traegt weder diese
- * Datei noch ihr Verbraucherkreis einen Fremdtyp, den er nicht braucht.
+ * NO INLINE DEFINITION, AND THAT IS WHY THIS FILE DOES NOT NAME THE LIBRARY. An inline `init`
+ * would have to name the colored console sink, the logger type and the level constant of the
+ * library DIRECTLY, in a header the whole tree sees. Both are declarations; their bodies stand
+ * with the other standalone entry points in log_standalone.cpp. So neither this file nor its
+ * consumers carry a foreign type they do not need.
  *
- * EIN HINWEIS FUER JEDEN, DER HIER SPAETER SCHREIBT: die Sperre gegen den direkten Gebrauch der
- * Bibliothek greift auch in KOMMENTAREN — ihr Muster ist der qualifizierte Name, nicht der
- * Aufruf. Dieser Absatz umschreibt die drei Typen deshalb, statt sie zu zitieren. Wer sie hier
- * beim Namen nennt, erzeugt einen Befund in einer Datei, die sonst keinen haette.
+ * A NOTE FOR EVERYONE WHO WRITES HERE LATER: the ban on direct use of the library also applies
+ * in COMMENTS - its pattern is the qualified name, not the call. This paragraph therefore
+ * describes the three types instead of quoting them. Whoever names them here produces a finding
+ * in a file that would otherwise have none.
  *
- * DIE UMSTELLUNG FUEGT KEINE LINKKANTE HINZU, gemessen: `internal::logger_slot()` ist in log.hpp
- * nur DEKLARIERT und ausserhalb definiert. Wer `log::info` ruft, ruft sie — also linkt jeder
- * Aufrufer bereits gegen diese Bibliothek, und eine nicht-inline `init` verlangt nichts Neues.
+ * THE CUT ADDS NO LINK EDGE, measured: `internal::logger_slot()` is only DECLARED in log.hpp and
+ * defined elsewhere. Whoever calls `log::info` calls it - so every caller already links against
+ * this library, and a non-inline `init` demands nothing new.
  *
  * LAYER RULES:
  *   Layer 0 (Foundation): NO dependencies on other ASE modules (only std::)
@@ -78,9 +79,7 @@
 
 namespace ase::log {
 
-// ============================================================================
-// CLI Initialization (for tools without ECS World)
-// ============================================================================
+// CLI initialization (for tools without an ECS world)
 
 /**
  * @brief Initialize logger for CLI tools (no ECS required)
@@ -89,8 +88,8 @@ namespace ase::log {
  * Use this for CLI tools that don't have an ECS World.
  * For ECS-based apps, use LogSystem::on_start() instead.
  *
- * Idempotent: returns immediately when a logger already exists. Defined in log_sys.cpp — der
- * Rumpf baut eine Konsolensenke der Bibliothek, und die gehoert nicht in einen Header.
+ * Idempotent: returns immediately when a logger already exists. Defined in log_sys.cpp - the
+ * body builds a console sink of the library, and that does not belong in a header.
  */
 void init(const std::string& name);
 
@@ -159,9 +158,8 @@ void install_capture_logger();
  *
  * WHY THIS EXISTS: two callers in ase-ecs (boot_logger.cpp, shutdown_sequence.cpp) print a
  * progress table to stdout and must not let a log line from some system's on_start tear a
- * row in half. Both solved it the same way and each carried its OWN copy: a private sink
- * class deriving from spdlog, a saved vector of the previous sinks, and a replay loop. Two
- * copies of one mechanism, in the module that owns neither the logger nor its sinks.
+ * row in half. The mechanism - a private sink, the saved previous sinks and a replay loop -
+ * belongs to the module that owns the logger and its sinks, not to its two callers.
  *
  * The sinks belong to the logger, so the bracket belongs here.
  *
@@ -211,17 +209,12 @@ uint32_t capture_entry(uint32_t index, uint8_t& out_level, char* out_text, uint3
  * holds both halves at once.
  *
  * THERE IS DELIBERATELY NO "skip the console" ARGUMENT, and the reason is a measurement rather
- * than a preference. boot_logger.cpp used to filter the console out of this replay with two
- * dynamic_casts against concrete sink classes of the logging library. Those casts were looking
- * for something that is not there: in the server path this module attaches a file sink, an
- * HTTP ringbuffer and a counting sink and NOTHING else (log_sys.cpp builds exactly two sinks,
- * both ringbuffers; finalize_logger_after_boot attaches exactly three, none of them a
- * console). The only console sink ase-log ever constructs lives in init_standalone, for CLI
- * tools that never run a boot table.
- *
- * So the filter removed nothing, and carrying it over would have moved a mechanism without an
- * effect into a second module — where the next reader would have had to work out all over
- * again what it guards against.
+ * than a preference. In the server path this module attaches a file sink, an HTTP ringbuffer and
+ * a counting sink and NOTHING else (log_sys.cpp builds exactly two sinks, both ringbuffers;
+ * finalize_logger_after_boot attaches exactly three, none of them a console). The only console
+ * sink ase-log ever constructs lives in init_standalone, for CLI tools that never run a boot
+ * table. A console filter here would remove nothing, and the next reader would have to work out
+ * all over again what it guards against.
  *
  * IF A CONSOLE SINK IS EVER ATTACHED TO THE SERVER LOGGER, this decision has to be taken
  * again: replayed boot lines would then reach a terminal that already shows the progress
@@ -274,8 +267,8 @@ void finalize_logger_after_boot();
 /**
  * @brief Shutdown logger (for CLI tools)
  *
- * Flushes and releases the logger slot. Defined in log_sys.cpp — der Rumpf fasst den
- * Bibliothekszeiger an, und der gehoert nicht in einen Header.
+ * Flushes and releases the logger slot. Defined in log_sys.cpp - the body touches the library
+ * pointer, and that does not belong in a header.
  */
 void shutdown();
 

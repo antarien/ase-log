@@ -666,7 +666,7 @@ class C:
     WIKI_VIEW_HAIRLINE = "\033[38;2;255;255;255m"  # list separators
 
     # -- Terminal Shorthand Aliases --
-    RED = TERM_RED
+    RED = CONSOLE_TREND_BAD
     ORANGE = TERM_ORANGE
     YELLOW = TERM_YELLOW
     GREEN = CONSOLE_TREND_GOOD

@@ -38,27 +38,9 @@
 #include <ase/ecs/app.hpp>
 #include <ase/log/version.hpp>
 #include <ase/log/systems/log_sys.hpp>
-#include <cstdint>
-#include <cstring>
+#include <ase/log/log_config.hpp>
 
 namespace ase::log {
-
-/** Log configuration — set before adding LogModule to configure log file path.
- *  Usage:
- *    app.world().registry().ctx().emplace<LogConfig>("logs/engine.log");
- *    app.add_module<LogModule>();
- */
-struct LogConfig {
-    char log_file[256] = "";   // Empty by default — KernelCmdSystem MUST populate.
-    char label[16] = "SERVER";
-    uint32_t ringbuffer_size = 500;
-    LogConfig() = default;
-    explicit LogConfig(const char* path) { std::strncpy(log_file, path, 255); log_file[255] = '\0'; }
-    LogConfig(const char* path, const char* lbl) {
-        std::strncpy(log_file, path, 255); log_file[255] = '\0';
-        std::strncpy(label, lbl, 15); label[15] = '\0';
-    }
-};
 
 struct LogModule {
     static constexpr const char* name() { return "ase-log"; }
