@@ -3,14 +3,19 @@
 # Version Registry (SSOT - Single Source of Truth)
 # ==============================================================================
 #
-# VERSION FORMAT: MM.mm.pp.BBBBB (e.g., 00.02.14.00127)
+# VERSION FORMAT: MM.mm.pp.BBBBB (e.g., 00.02.27.00127)
 #   MM    = MAJOR (manual, 00 until 1.0 release)
 #   mm    = MINOR (commits / 50)
 #   pp    = PATCH (commits % 50)
 #   BBBBB = BUILD (total commits)
 #
+# DAS BEISPIEL RECHNET SICH NACH. Bis 2026-09-16 stand hier `00.02.14.00127`:
+# 127 Commits ergeben `127/50 = 2` und `127%50 = 27`, nicht 14. Dieselbe Zeile
+# steht in `fill_version_catalog.py` und `scaffold_new_module_structure.sh` -
+# wer eine davon aendert, aendert die anderen mit.
+#
 # FORMAT per Component:
-#   ASE_{ABBR}=00.02.14.00127
+#   ASE_{ABBR}=00.02.27.00127
 #   ASE_{ABBR}_NAME=Full Name
 #   ASE_{ABBR}_DESC=Short description
 #   ASE_{ABBR}_LAYER=0-5

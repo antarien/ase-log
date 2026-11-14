@@ -126,6 +126,7 @@ class C:
     TERM_CYAN = "\033[38;2;0;204;204m"
     TERM_BLUE = "\033[38;2;0;136;255m"
     TERM_PURPLE = "\033[38;2;170;0;255m"
+    TERM_DARK_VIOLET = "\033[38;2;148;0;211m"
     TERM_PINK = "\033[38;2;255;0;204m"
 
     # -- 7. CONNECTION STATUS --
@@ -805,6 +806,21 @@ class C:
     DEBUG_BUTTON_ON = "\033[38;2;48;48;48m"  # the debug button while debug is on: SURFACE_5_SELECT
     DEBUG_DRAWER = "\033[38;2;4;4;4m"  # the open debug drawer: SURFACE_0_PANEL
     DEBUG_FIELD = "\033[38;2;10;10;10m"  # a value field inside the drawer: SURFACE_1
+    FIGURE_INK = "\033[38;2;230;237;239m"  # the head title
+    FIGURE_HEAD_BAR = "\033[38;2;6;10;12m"  # the bar across the head of the screen
+    FIGURE_STICK_GROUND = "\033[38;2;6;10;12m"  # the ring of the stick while the thumb holds it
+    FIGURE_STICK_RING = "\033[38;2;230;237;239m"  # outline of that ring
+    FIGURE_STICK_KNOB = "\033[38;2;230;237;239m"  # the knob under the thumb
+    FIGURE_STICK_REST = "\033[38;2;230;237;239m"  # the dashed ring where the stick rests
+    FIGURE_STICK_REST_LABEL = "\033[38;2;230;237;239m"  # the word inside the resting ring
+    FIGURE_ZONE_STICK = "\033[38;2;255;179;0m"  # dashed frame of the stick half
+    FIGURE_ZONE_STICK_LABEL = "\033[38;2;255;179;0m"  # the name of the stick half
+    FIGURE_ZONE_ORBIT = "\033[38;2;159;180;255m"  # dashed frame of the orbit half
+    FIGURE_ZONE_ORBIT_LABEL = "\033[38;2;159;180;255m"  # the name of the orbit half
+    FIGURE_AREA_EDGE = "\033[38;2;255;179;0m"  # the warning that the figure stands at the edge of its area
+    FIGURE_SWITCH_GROUND = "\033[38;2;38;198;166m"  # the hexagon of cam.mode while the player camera stands
+    FIGURE_RAIL = "\033[38;2;230;237;239m"  # the zoom rail, the comb's leader and the spine
+    FIGURE_SOUL_LABEL = "\033[38;2;93;110;115m"  # the word SEELE over the spine's end
 
     # -- Terminal Shorthand Aliases --
     RED = CONSOLE_TREND_BAD
