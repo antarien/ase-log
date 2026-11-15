@@ -18,7 +18,11 @@
  * @usecase     usecase:100363 - read recent log lines
  * @created     2026-10-11
  * @modified    2026-10-11
- * @version     1.0.0
+ * @version     00.01.36.00086 [feat]
+ *
+ * Copyright (c) Jan Ohlmann. All rights reserved.
+ * Licensed to ANTARES SIMULACAO LTDA. Use is governed by LICENSE.md and PJV.md in this repository.
+ * SPDX-License-Identifier: LicenseRef-ASE-LIC
  *
  * LAYER RULES:
  *   Layer 0 (Foundation): NO dependencies on other ASE modules (only std::)

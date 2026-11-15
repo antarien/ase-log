@@ -10,7 +10,11 @@
  * @usecase     usecase:100361 - open the log sinks
  * @created     2026-01-09
  * @modified    2026-10-11
- * @version     1.2.0
+ * @version     00.01.36.00086 [feat]
+ *
+ * Copyright (c) Jan Ohlmann. All rights reserved.
+ * Licensed to ANTARES SIMULACAO LTDA. Use is governed by LICENSE.md and PJV.md in this repository.
+ * SPDX-License-Identifier: LicenseRef-ASE-LIC
  *
  * CAUSAL CHAIN (CAUSA_LOG_SINKS: die Senken entstehen und vergehen)
  *

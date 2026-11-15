@@ -1,0 +1,11 @@
+ase-log
+Copyright (c) Jan Ohlmann. Licensed to ANTARES SIMULACAO LTDA.
+Own code: LicenseRef-ASE-LIC, see LICENSE.md and PJV.md.
+
+This repository includes or depends on the following third-party material.
+Their licenses are not replaced by LICENSE.md (LIC 1.3, 8.1).
+
+Component | Upstream | SPDX | Location / use
+Python3 | NOASSERTION | NOASSERTION | find_package: CMakeLists.txt
+
+Full license texts: third_party/<component>/LICENSE (code kept in this repository) or third_party/licenses/<component>.txt (all other components)

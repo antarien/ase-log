@@ -2,6 +2,10 @@
 
 // GCC14 has a false positive -Wdangling-reference warning with spdlog/fmt
 // See: https://github.com/fmtlib/fmt/issues/3415
+//
+// Copyright (c) Jan Ohlmann. All rights reserved.
+// Licensed to ANTARES SIMULACAO LTDA. Use is governed by LICENSE.md and PJV.md in this repository.
+// SPDX-License-Identifier: LicenseRef-ASE-LIC
 #if defined(__GNUC__) && __GNUC__ >= 14
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdangling-reference"

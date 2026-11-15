@@ -20,6 +20,10 @@ Checks the token sources of the log filter against one bit space.
 @usecase     usecase:100001 - check source files
 @actor       Rule Compliance Checker (RULECHK)
 
+Copyright (c) Jan Ohlmann. All rights reserved.
+Licensed to ANTARES SIMULACAO LTDA. Use is governed by LICENSE.md and PJV.md in this repository.
+SPDX-License-Identifier: LicenseRef-ASE-LIC
+
 USAGE
     python validate_log_tokens.py -?            # Help
     python validate_log_tokens.py -A            # All JSON sources

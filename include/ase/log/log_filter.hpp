@@ -18,7 +18,11 @@
  * @usecase     usecase:100362 - write a log line
  * @created     2026-02-02
  * @modified    2026-10-19
- * @version     1.1.0
+ * @version     00.01.36.00086 [feat]
+ *
+ * Copyright (c) Jan Ohlmann. All rights reserved.
+ * Licensed to ANTARES SIMULACAO LTDA. Use is governed by LICENSE.md and PJV.md in this repository.
+ * SPDX-License-Identifier: LicenseRef-ASE-LIC
  *
  * CORE INFRASTRUCTURE COMPLIANCE
  *

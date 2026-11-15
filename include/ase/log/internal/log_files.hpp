@@ -22,7 +22,11 @@
  * @category    ecs/module
  * @created     2026-08-20
  * @modified    2026-08-20
- * @version     1.0.0
+ * @version     00.01.36.00086 [feat]
+ *
+ * Copyright (c) Jan Ohlmann. All rights reserved.
+ * Licensed to ANTARES SIMULACAO LTDA. Use is governed by LICENSE.md and PJV.md in this repository.
+ * SPDX-License-Identifier: LicenseRef-ASE-LIC
  *
  * CORE INFRASTRUCTURE COMPLIANCE
  *
