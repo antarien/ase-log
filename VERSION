@@ -9,10 +9,9 @@
 #   pp    = PATCH (commits % 50)
 #   BBBBB = BUILD (total commits)
 #
-# DAS BEISPIEL RECHNET SICH NACH. Bis 2026-09-16 stand hier `00.02.14.00127`:
-# 127 Commits ergeben `127/50 = 2` und `127%50 = 27`, nicht 14. Dieselbe Zeile
-# steht in `fill_version_catalog.py` und `scaffold_new_module_structure.sh` -
-# wer eine davon aendert, aendert die anderen mit.
+# EXAMPLE: 127 commits give 127 / 50 = 2 and 127 % 50 = 27, hence 00.02.27.00127.
+# The same format line stands in fill_version_catalog.py and
+# scaffold_new_module_structure.sh; the three are changed together.
 #
 # FORMAT per Component:
 #   ASE_{ABBR}=00.02.27.00127
