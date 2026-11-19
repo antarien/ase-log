@@ -823,6 +823,7 @@ class C:
     FIGURE_ZONE_ORBIT = "\033[38;2;159;180;255m"  # dashed frame of the orbit half
     FIGURE_ZONE_ORBIT_LABEL = "\033[38;2;159;180;255m"  # the name of the orbit half
     FIGURE_AREA_EDGE = "\033[38;2;255;179;0m"  # the warning that the figure stands at the edge of its area
+    FIGURE_EDGE_GLASS = "\033[38;2;255;46;46m"  # the red glass pane that flashes where a body bumps the edge of the chunk (07.13)
     FIGURE_SWITCH_GROUND = "\033[38;2;38;198;166m"  # the hexagon of cam.mode while the player camera stands
     FIGURE_RAIL = "\033[38;2;230;237;239m"  # the zoom rail, the comb's leader and the spine
     FIGURE_SOUL_LABEL = "\033[38;2;93;110;115m"  # the word SEELE over the spine's end
