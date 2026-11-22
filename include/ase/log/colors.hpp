@@ -156,7 +156,7 @@ constexpr int ASE_PL_SKY        = 51;   // Cyan (sky!)
 constexpr int ASE_PL_WEATHER    = 195;  // Light cyan
 constexpr int ASE_PL_WATER      = 39;   // Deep sky blue
 constexpr int ASE_PL_EROSION    = 137;  // Dark khaki
-constexpr int ASE_PL_FIRE       = 202;  // Orange red
+constexpr int ASE_PL_INGLE      = 202;  // Orange red (the campfire)
 constexpr int ASE_PL_FLORA      = 70;   // Medium sea green
 constexpr int ASE_PL_FAUNA      = 143;  // Dark khaki
 constexpr int ASE_PL_PREDATOR   = 196;  // Red (danger!)
@@ -315,7 +315,7 @@ inline int get_module_color_code(const char* module_name_cstr) {
     if (module_name == "pl-weather")    return ASE_PL_WEATHER;
     if (module_name == "pl-water")      return ASE_PL_WATER;
     if (module_name == "pl-erosion")    return ASE_PL_EROSION;
-    if (module_name == "pl-fire")       return ASE_PL_FIRE;
+    if (module_name == "pl-ingle")      return ASE_PL_INGLE;
     if (module_name == "pl-flora")      return ASE_PL_FLORA;
     if (module_name == "pl-fauna")      return ASE_PL_FAUNA;
     if (module_name == "pl-predator")   return ASE_PL_PREDATOR;
