@@ -803,6 +803,10 @@ class C:
     MATERIAL_SEED = "\033[38;2;205;177;132m"  # a seed
     MATERIAL_SEED_EDGE = "\033[38;2;122;96;64m"  # outline of a seed
     MATERIAL_SEED_HILUM = "\033[38;2;109;82;50m"  # the eye of a seed
+    MATERIAL_DEATHCAP = "\033[38;2;163;164;106m"  # the olive green cap of the death cap (Amanita phalloides)
+    MATERIAL_DEATHCAP_EDGE = "\033[38;2;95;98;54m"  # outline of that cap
+    MATERIAL_VEIL = "\033[38;2;241;239;228m"  # white gills, ring and volva of a fungus
+    MATERIAL_VEIL_EDGE = "\033[38;2;169;165;147m"  # outline of the white parts of a fungus
     DEBUG_INK = "\033[38;2;138;154;154m"  # every debug text and symbol: TEXT_PRIMARY
     DEBUG_INK_ON = "\033[38;2;192;192;192m"  # the label of a chosen debug chip: TEXT_PANEL_WHITE
     DEBUG_LINE = "\033[38;2;115;115;115m"  # outline of chips, handle, fields, the drawer line: BORDER_A50
