@@ -814,7 +814,9 @@ class C:
     DEBUG_CHIP_OFF = "\033[38;2;18;18;18m"  # a debug chip not chosen: SURFACE_2
     DEBUG_BUTTON_ON = "\033[38;2;48;48;48m"  # the debug button while debug is on: SURFACE_5_SELECT
     DEBUG_DRAWER = "\033[38;2;4;4;4m"  # the open debug drawer: SURFACE_0_PANEL
-    DEBUG_FIELD = "\033[38;2;10;10;10m"  # a value field inside the drawer: SURFACE_1
+    DEBUG_FIELD = "\033[38;2;10;10;10m"  # a value field inside the drawer, and the grid lines of the RSM table: SURFACE_1
+    DEBUG_CELL = "\033[38;2;90;90;90m"  # a cell of the RSM timer table: the grey cells of the prototype grid (rsmprototypvolumebar.PNG)
+    DEBUG_RUN = "\033[38;2;155;10;10m"  # the SES cell of an active learning entry: the red cell of the prototype grid
     FIGURE_INK = "\033[38;2;230;237;239m"  # the head title
     FIGURE_HEAD_BAR = "\033[38;2;6;10;12m"  # the bar across the head of the screen
     FIGURE_STICK_GROUND = "\033[38;2;6;10;12m"  # the ring of the stick while the thumb holds it
