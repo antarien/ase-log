@@ -1,6 +1,6 @@
 # Antares Simulation Engine und ADG – Lizenzabkommen
 
-**Deutsche Übersetzung der englischen Fassung; Kennungen und Regelungsinhalt bleiben unverändert. Aussagen zur Sprache des Vertragstexts beziehen sich auf die Ausgangsfassung.**
+**Deutsche Übersetzung der englischen Fassung; Kennungen und Regelungsinhalt bleiben unverändert.**
 
 **Kennung: ASE-ADG-LIC-2026-10-16-1.0**  
 **Ausgabedatum: 16. Oktober 2026**  
@@ -199,9 +199,9 @@ Backend-Leistungen: Ein Offline-Produkt kann unabhängig funktionieren, während
 
 16.3 Mitteilungen müssen in angemessener Weise schriftlich oder in elektronischer Textform über den jeweiligen privaten Vertragskanal oder den Gesellschaftssitz nachweisbar sein. Gewöhnliche Fragen zu öffentlichem Code können Repository-Kanäle nutzen. Eine technische Projektfreigabe ist keine persönliche Garantie und kein Verzicht auf finanzielle Bedingungen.
 
-16.4 Brasilianisches Recht gilt, soweit eine Rechtswahl wirksam ist. Zwingende Schutzregeln für eine Person oder Transaktion und nicht abdingbare gerichtliche Zuständigkeiten bleiben anwendbar. Soweit eine Gerichtsstandsvereinbarung rechtmäßig ist, werden die Gerichte von Caucaia, Ceará, Brasilien bestimmt. Es wird weder eine Schiedsgerichtspflicht noch ein Verzicht auf zwingende kollektive Rechtsbehelfe auferlegt.
+16.4 Brasilianisches Recht gilt, soweit eine Rechtswahl wirksam ist. Zwingende Schutzregeln für eine Person oder Transaktion und nicht abdingbare gerichtliche Zuständigkeiten bleiben anwendbar. Diese Rechtswahl entzieht einem Verbraucher nicht den Schutz der zwingenden Vorschriften des Rechts des Staates, in dem er seinen gewöhnlichen Aufenthalt hat. Soweit eine Gerichtsstandsvereinbarung rechtmäßig ist, werden die Gerichte von Caucaia, Ceará, Brasilien bestimmt. Es wird weder eine Schiedsgerichtspflicht noch ein Verzicht auf zwingende kollektive Rechtsbehelfe auferlegt.
 
-16.5 Dies ist der englische Vertragstext. Soweit anwendbares Recht portugiesische oder andere verständliche vorvertragliche Informationen verlangt, muss die Lizenzgeberin sie vor Vertragsschluss bereitstellen. Kein Sprachvorrang verdrängt zwingende Auslegungs- oder Informationspflichten. Eine Übersetzung muss ihre zugehörige Fassung und einen ausdrücklich vereinbarten maßgeblichen Status bezeichnen.
+16.5 Dieser Vertrag liegt in brasilianischem Portugiesisch (pt-BR), Englisch und Deutsch mit gleichem Inhalt vor. Maßgeblich ist die pt-BR-Fassung; weichen die Sprachfassungen voneinander ab, geht die pt-BR-Fassung vor. Die englische und die deutsche Fassung werden vor Vertragsschluss stets zusammen mit der pt-BR-Fassung bereitgestellt und mit ihr auf der Webseite der Lizenzgeberin veröffentlicht. Soweit anwendbares Recht portugiesische oder andere verständliche vorvertragliche Informationen verlangt, muss die Lizenzgeberin sie vor Vertragsschluss bereitstellen. Kein Sprachvorrang verdrängt zwingende Auslegungs- oder Informationspflichten, einschließlich der Verbraucherschutzvorschriften des Staates des gewöhnlichen Aufenthalts. Eine Übersetzung muss ihre zugehörige Fassung und einen ausdrücklich vereinbarten maßgeblichen Status bezeichnen.
 
 16.6 Ist eine Klausel unwirksam, bestehen die übrigen Bestimmungen nur im gesetzlich zulässigen Umfang fort. Ein unwirksamer Ausschluss wird nicht automatisch auf die maximal mögliche beschränkende Wirkung umgeschrieben. Es gelten die einschlägigen gesetzlichen Ersatzregelungen.
 
